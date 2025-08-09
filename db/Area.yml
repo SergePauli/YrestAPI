@@ -1,0 +1,11 @@
+table: areas
+presets:
+  card:
+    fields:
+      - source: areas.id
+        alias: id
+        type: int
+      - source: areas.name
+        alias: name
+        type: string
+        

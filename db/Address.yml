@@ -1,0 +1,19 @@
+table:  addresses
+relations:
+  area:
+    model: Area
+    type: belongs_to    
+presets:
+  card:
+    fields:
+      - source: addresses.id
+        alias: id
+        type: int        
+      - source: addresses.value
+        alias: value
+        type: string
+      - source: area
+        type: preset
+        alias: area
+        preset: Area.card
+      

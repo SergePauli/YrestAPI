@@ -1,0 +1,192 @@
+package model
+
+import (
+	"fmt"
+	"math/rand"
+	"strings"
+)
+
+// DetectJoins определяет, какие JOIN-ы нужны для модели на основе фильтров, сортировки и пресетов
+// Возвращает список JoinSpec, которые можно использовать в SQL-запросах
+// filterFields, sortFields и presetFields — это поля, по которым нужно искать связи
+// Если пресеты не нужны, можно передать nil или пустой срез
+func (m *Model) DetectJoins(
+	filterFields []string,	
+	sortFields []string, // опционально
+	presetFields []string, // опционально.
+) ([]*JoinSpec, error) {
+	joinMap := map[string]*JoinSpec{}	
+	joins := make([]*JoinSpec, 0)
+	toAdd, err := detectJoinsRecursive(m, filterFields, joinMap, "", "main",false, m._AliasMap)
+	if err != nil {
+		return nil, err
+	}
+	joins = append(joins, toAdd...)
+	return joins, nil
+}
+
+// detectJoinsRecursive рекурсивно определяет JOIN-ы для модели на основе полей
+// fields — список полей, по которым нужно искать связи
+// joinMap — карта уже найденных JOIN-ов, чтобы избежать дублирования
+// prefix — префикс для алиасов, чтобы избежать конфликтов имен
+// throughMode — если true, значит мы находимся в режиме обработки через промежуточ
+func detectJoinsRecursive(
+	m *Model,
+	fields []string,
+	joinMap map[string]*JoinSpec,
+	pathPrefix string,
+	parentAlias string,
+	throughMode bool,
+	aliasMap *AliasMap,	
+) ([]*JoinSpec, error) {
+	joins := make([]*JoinSpec,0)
+	for _, field := range fields {
+		parts := strings.SplitN(field, ".", 2)
+		if len(parts) < 2 {
+			continue // нет вложенности
+		}
+
+		relName := parts[0]
+		rel, ok := m.Relations[relName]
+		if !ok || rel._ModelRef == nil {
+			continue
+		}
+
+		fullPath := pathPrefix + relName
+		alias, ok := aliasMap.PathToAlias[fullPath]
+		if !ok {
+			return joins, fmt.Errorf("alias not found for path %s", fullPath)
+		}
+
+		// Пропускаем, если уже добавлен
+		if _, exists := joinMap[alias]; exists {
+			continue
+		}
+
+		// Обработка через through
+		if rel.Through != "" && !throughMode {
+			// 1. Генерируем уникальный алиас для промежуточной таблицы
+    	throughAlias := generateUniqueAlias(joinMap)
+
+			// Добавляем промежуточный join			
+			onClause := fmt.Sprintf("%s.%s = %s.%s", parentAlias, rel.PK, throughAlias, rel.FK)
+			joinMap[throughAlias] = &JoinSpec{
+					Table:    rel._ThroughRef.Table,
+					Alias:    throughAlias,
+					On:       onClause,					
+					JoinType: "LEFT JOIN",
+					Where:    replaceTableWithAlias(rel.ThroughWhere, throughAlias),
+			}
+			joins = append(joins, joinMap[throughAlias])
+			// 2. Добавляем join к конечной модели			
+    	var finalRel *ModelRelation
+    	for _, subRel := range rel._ThroughRef.Relations {
+        if subRel._ModelRef == rel._ModelRef {           
+            finalRel = subRel
+            break
+        }
+    	}
+    	if finalRel == nil {
+        return joins,fmt.Errorf("no final relation found in through %s -> %s", rel._ThroughRef.Table, rel._ModelRef.Table)
+    	}
+
+			// Добавляем join к конечной модели
+			joinMap[alias] = &JoinSpec{
+				Table:    rel._ModelRef.Table,
+				Alias:    alias,
+				On:       fmt.Sprintf("%s.%s = %s.%s", throughAlias, finalRel.FK, alias, finalRel.PK),
+				JoinType: "LEFT JOIN",
+				Where:    replaceTableWithAlias(rel.Where,  alias),
+				Distinct: rel.Type == "has_many" || rel.Type == "has_one",
+			}
+			joins = append(joins, joinMap[alias])
+
+			// Продолжаем через промежуточную
+			toAdd, err := detectJoinsRecursive(
+				rel._ModelRef,
+				[]string{field},
+				joinMap,
+				pathPrefix,
+				alias,
+				true,
+				aliasMap,
+				
+			)
+			if err != nil {
+				return joins,err
+			}
+			joins = append(joins, toAdd...)
+			continue
+		}
+
+		// Обычный JOIN
+		var onClause string
+		switch rel.Type {
+		case "belongs_to":
+			// parent.FK = alias.PK
+			onClause = fmt.Sprintf("%s.%s = %s.%s", parentAlias, rel.FK, alias, rel.PK)
+		case "has_one", "has_many":
+			// alias.FK = parent.PK
+			onClause = fmt.Sprintf("%s.%s = %s.%s", alias, rel.FK, parentAlias, rel.PK)
+		default:
+			return joins,fmt.Errorf("unsupported relation type: %s", rel.Type)
+		}
+
+		joinMap[alias] = &JoinSpec{
+			Table:    rel._ModelRef.Table,
+			Alias:    alias,
+			On:       onClause,
+			JoinType: "LEFT JOIN",
+			Where:    replaceTableWithAlias(rel.Where,  alias),
+			Distinct: rel.Type == "has_many" || rel.Type == "has_one",
+		}
+		joins = append(joins, joinMap[alias])
+
+		// Рекурсивно обрабатываем вложенность
+		if len(parts) > 1 {
+			nextPrefix := fullPath + "."
+			toADD, err := detectJoinsRecursive(
+				rel._ModelRef,
+				[]string{parts[1]},
+				joinMap,
+				nextPrefix,
+				alias,
+				false,
+				aliasMap,				
+			)
+			if err != nil {
+				return joins, err
+			}
+			joins = append(joins, toADD...)
+		}
+	}
+	return joins,nil
+}
+
+// generateUniqueAlias создает уникальный алиас для JOIN-а
+// Используется для генерации алиасов, которые не конфликтуют с уже существующими
+func generateUniqueAlias(existing map[string]*JoinSpec) string {
+    for {
+        alias := randomAlias(2) // например "ab", "xz"
+        if _, exists := existing[alias]; !exists {
+            return alias
+        }
+    }
+}
+
+// randomAlias генерирует случайный алиас из букв
+// Используется для создания уникальных алиасов в JOIN-ах
+func randomAlias(length int) string {
+    letters := []rune("abcdefghijklmnopqrstuvwxyz")
+    b := make([]rune, length)
+    for i := range b {
+        b[i] = letters[rand.Intn(len(letters))]
+    }
+    return string(b)
+}
+func replaceTableWithAlias(where string, alias string) string {
+    if where == "" {
+        return ""
+    }
+    return strings.ReplaceAll(where, ".", alias+".")
+}

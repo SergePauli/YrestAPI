@@ -1,0 +1,33 @@
+# Go build
+/bin/
+/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go modules
+/go.sum
+/vendor/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Env / Config
+.env
+.env.*
+
+# Dependency managers
+air.toml
+
+# OS
+.DS_Store
+Thumbs.db

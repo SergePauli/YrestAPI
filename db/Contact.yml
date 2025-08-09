@@ -1,0 +1,30 @@
+table: contacts
+presets:
+  item:
+    fields:
+      - source: contacts.id
+        type: int
+        alias: id
+      - source: contacts.value
+        type: string
+        alias: name
+      - source: contacts.type
+        type: string
+        alias: type
+  edit:
+    fields:
+      - source: contacts.id
+        type: int
+        alias: id
+      - source: contacts.value
+        type: string
+        alias: value
+      - source: contacts.type
+        type: string
+        alias: type
+      - source: contacts.created_at
+        type: datetime
+        alias: created_at
+      - source: contacts.updated_at
+        type: datetime
+        alias: updated_at      

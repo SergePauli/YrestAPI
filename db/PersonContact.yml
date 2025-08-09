@@ -1,0 +1,34 @@
+table: person_contacts
+relations:
+  contact:
+    model: Contact
+    type: belongs_to
+    fk: contact_id
+presets:
+  item:
+    fields:
+      - source: person_contacts.id
+        type: int
+        alias: id      
+      - source: person_contact_contact.type
+        type: string
+        alias: type
+      - source: contacts
+        type: preset
+        alias: contact
+        nested_preset: Contact.item
+  edit:
+    fields:
+      - source: person_contacts.id
+        type: int
+        alias: id
+      - source: person_contacts.person_id
+        type: int
+        alias: person_id
+      - source: person_contacts.contact_id
+        type: int
+        alias: contact_id
+      - source: contacts.value
+        type: string
+        alias: contact_value
+        nested_preset: Contact.edit
