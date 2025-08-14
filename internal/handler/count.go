@@ -35,7 +35,7 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	// Получаем карту алиасов из Redis или строим на лету
 	err := m.GetAliasMapFromRedisOrBuild(r.Context(), req.Model)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("resolver: alias map error: %w", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("alias map error: %w", err), http.StatusInternalServerError)
 	 	return 
 	}
 	for k, v := range m.GetAliasMap().PathToAlias {
@@ -63,7 +63,7 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	// Выполняем запрос к базе данных
 	// Используем QueryRow, так как нам нужен только один результат
 	// Это оптимально для подсчета количества записей
-	row := db.Conn.QueryRow(r.Context(), sqlStr, args...)
+	row := db.Pool.QueryRow(r.Context(), sqlStr, args...)
 	var count int
 	if err := row.Scan(&count); err != nil {
 		http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)

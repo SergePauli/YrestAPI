@@ -4,222 +4,263 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
-	"github.com/jackc/pgx/v5"
-
+	"YrestAPI/internal/db"
 	"YrestAPI/internal/model"
 )
 
-type ResolverResult struct {
-	data []map[string]any
-	Err  error
-}
-
-// CastToMapSlice пытается привести []any к []map[string]any с безопасной проверкой.
-// Возвращает ошибку, если хотя бы один элемент не является map[string]any.
-func CastToMapSlice(raw []any) ([]map[string]any, error) {
-	results := make([]map[string]any, len(raw))
-	for i, v := range raw {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("CastToMapSlice: element at index %d is not map[string]any", i)
-		}
-		results[i] = m
-	}
-	return results, nil
-}
-
-// extractPrimaryIDsAndCache считывает все строки один раз,
-// возвращает ID-шники и кэшированные строки для повторного использования
-// hasFields - это карта полей, которые имеют has_many отношения
-// Возвращает:
-// - map[string][]any: ID-шники для каждого has_many поля
-// - []map[string]any: кэшированные строки с полными данными
-
-
-func extractPrimaryIDsAndCache(
-	rows pgx.Rows,
-	hasFields map[string]*model.Field,
-) (map[string][]any, []map[string]any, error) {
-	defer rows.Close()
-
-	// Подготовка
-	pkSets := make(map[string]map[any]bool)      // для уникальных ID по каждому PKField
-	pkLists := make(map[string][]any)            // итоговые ID
-	cachedRows := make([]map[string]any, 0)
-
-	for key := range hasFields {
-		pkSets[key] = make(map[any]bool)
-	}
-
-	for rows.Next() {
-		values, err := rows.Values()		
+// Главный резолвер
+func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
+    // 0) модель и aliasMap
+    m, ok := model.Registry[req.Model]
+    if !ok { return nil, fmt.Errorf("resolver: model not found: %s", req.Model) }
+    // Получаем карту алиасов из Redis или строим на лету
+		err := m.GetAliasMapFromRedisOrBuild(ctx, req.Model)
 		if err != nil {
-			return nil, nil, fmt.Errorf("rows.Values: %w", err)
+			log.Printf("resolver: alias map error: %v", err)
+	 		return nil, fmt.Errorf("alias map error: %s", err)
 		}
+		var preset *model.DataPreset
+		if (req.Preset != "") {
+    	preset = m.GetPreset(req.Preset)
+		} else {
+			preset = req.PresetObj
+		}	
+    if preset == nil { return nil, fmt.Errorf("preset not found: %s.%s", req.Model, req.Preset) }
 
-		fields := rows.FieldDescriptions()
-		row := make(map[string]any)
+    // 1) главный SELECT
+    sb, err := m.BuildIndexQuery(req.Filters, req.Sorts, preset, req.Offset, req.Limit)
+    if err != nil { return nil, err }
 
-		// Построим row и соберем PK-значения
-		for i, fd := range fields {
-			col := string(fd.Name)
-			val := values[i]
-			row[col] = val
-		}
+    sqlStr, args, err := sb.ToSql()
+    if err != nil { return nil, err }
+		//
+		log.Println("SQL for index:", sqlStr)
+		log.Println("ARGS:", args)
+
+    rows, err := db.Pool.Query(ctx, sqlStr, args...)
+    if err != nil { return nil, err }
+    defer rows.Close()
+
+		// твоя функция, восстанавливающая поля из aliasMap
+    items, err := m.ScanFlatRows(rows, preset) 
+    if err != nil { return nil, err }
+    if len(items) == 0 { return items, nil }
 		
-		// Обработка всех PKField
-		for alias, _ := range hasFields {			
-			pk := "id"    	
-    	if val, ok := row[pk]; ok && val != nil {
-        if !pkSets[alias][val] {
-            pkSets[alias][val] = true
-            pkLists[alias] = append(pkLists[alias], val)
+
+    // 4) определяем хвосты из пресета (рекурсивно по belongs_to)
+		tails := collectTails(m, preset)
+		if len(tails) == 0 {
+				// ⬅️ Хвостов нет — сразу финализируем и выходим
+				if err := finalizeItems(m, preset, items); err != nil {
+				return nil, fmt.Errorf("resolver: finalize: %w", err)
+			}
+			return items, nil
+		}
+
+    // 3) Собираем parentIDs отдельно для КАЖДОГО хвоста, используя rel.PK
+		type idSet map[any]struct{}
+		parentIDsByTail := make(map[string][]any) // FieldAlias -> []id
+
+		for _, t := range tails {
+    	// ключ родителя, который участвует в связи
+    	pkName := t.Rel.PK
+    	
+
+    	seen := make(idSet)
+    	ids := make([]any, 0, len(items))
+    	for _, it := range items {
+        if v, ok := it[pkName]; ok && v != nil {
+            if _, exists := seen[v]; !exists {
+                seen[v] = struct{}{}
+                ids = append(ids, v)
+            }
         }
     	}
+    	parentIDsByTail[t.FieldAlias] = ids
 		}
+    type grouped = map[any][]map[string]any
+		groupedByAlias := make(map[string]grouped)
 
-		cachedRows = append(cachedRows, row)
-	}
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var rerr error
 
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("rows.Err: %w", err)
-	}
+		for _, t := range tails {
+    	t := t
+    	ids := parentIDsByTail[t.FieldAlias]
+    	if len(ids) == 0 {
+        continue
+    	}
 
-	return pkLists, cachedRows, nil
-}
+    	wg.Add(1)
+    	go func() {
+        defer wg.Done()
 
-// groupBy группирует данные по значению ключа
-func groupBy(data []map[string]any, key string) map[string][]map[string]any {
-	grouped := make(map[string][]map[string]any)
-	for _, item := range data {
-		val, ok := item[key]
-		if !ok {
-			continue
-		}
-		strKey := fmt.Sprintf("%v", val)
-		grouped[strKey] = append(grouped[strKey], item)
-	}
-	return grouped
-}
+        childModel := t.Rel.GetModelRef()       
+        if childModel == nil {
+            mu.Lock(); rerr = fmt.Errorf("tail '%s': child model '%s' not found", t.FieldAlias, t.Rel.Model); mu.Unlock()
+            return
+        }
 
+        // вложенный пресет берём ПО ССЫЛКЕ МОДЕЛИ СВЯЗИ
+        var childPreset *model.DataPreset
+        if t.NestedPreset != ""  {
+            childPreset = childModel.Presets[t.NestedPreset]
+            if childPreset == nil {
+                mu.Lock(); rerr = fmt.Errorf("tail '%s': nested preset '%s' not found in model '%s'",
+                    t.FieldAlias, t.NestedPreset, childModel.Table); mu.Unlock()
+                return
+            }
+        }
 
-// Resolver выполняет запрос к базе данных с использованием пресета и возвращает результат
-// Использует параллельную загрузку has_many полей
-func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
-	// 0. Получаем модель
-	m, ok := model.Registry[req.Model]
-	if !ok {
-		return nil, fmt.Errorf("resolver: model not found: %s", req.Model)
-	}
-	log.Printf("Resolver: model %s found", m)
-	// aliasMap, err := m.GetAliasMapFromRedisOrBuild(ctx, req.Model)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("resolver: alias map error: %w", err)
-	// }
+        // формируем фильтр для дочернего резолвера
+        childFilters := map[string]any{}
+        fk := t.Rel.FK
 
-	
-	// // 1. Строим SQL (включая JOIN и has_one пресеты)
-	// main_query, hasFields:= p.BuildQuery(req.Filters, req.Sorts, req.Offset, req.Limit) 
-	// // 2. Выполняем запрос
-	// sqlStr, args, err := main_query.ToSql()
-	// if err != nil {		
-	// 	return nil, fmt.Errorf("resolver: Failed to build SQL: %w", err)
-	// }
-	// log.Printf("Executing query: %s\nARGS: %#v\n", sqlStr, args)
-	
-	// rows, err := db.Conn.Query(context.Background(), sqlStr, args...)
-	// if err != nil {		
-	// 	return nil, fmt.Errorf("resolver: DB error: %w", err)
-	// }
-	// defer rows.Close()
-
-	
-	// if len(hasFields) == 0 {
-	// 	// Если нет has_many полей, просто сканируем в JSON
-	// 	raw, err := p.ParseRowsToJSON(rows)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("resolver: scan error: %w", err)
-	// 	}		
-	// 	return raw, nil
-	// } else {
-	// 		// Если есть has_many поля, то:			
-	// 		// 1. Сканируем родительскую выборку в кэш + собираем ID-шники
-	// 		idMap, cachedRows, err := extractPrimaryIDsAndCache(rows, hasFields)								
-	// 		if err != nil {
-	// 			return nil, fmt.Errorf("extractPrimaryIDsAndCache: %w", err)
-	// 		}
-			
-	// 		var (
-	// 			wg           sync.WaitGroup
-	// 			mu           sync.Mutex
-	// 			nestedErr    error
-	// 			hasManyData  = make(map[string]map[string][]map[string]any)
-	// 		)
-
-	// 		// 2. Параллельно загружаем has_many данные
-	// 		for _, field := range hasFields {
-	// 			nestedPresetName := field.NestedPreset
-	// 			if nestedPresetName == "" {
-	// 				continue
-	// 			}
-
-	// 			ids := idMap[field.Alias]
-	// 			if len(ids) == 0 {
-	// 				continue
-	// 			}
-	// 			parts := strings.SplitN(nestedPresetName, ".", 2)
-	// 			if len(parts) != 2 {
-	// 				log.Printf("Некорректный NestedPreset: %s", nestedPresetName)
-	// 				continue
-	// 			}				
-	// 			wg.Add(1)
-	// 			// Запускаем горутину для загрузки has_many данных
-	// 			go func() {
-	// 				defer wg.Done()// Завершаем горутину
-	// 				// Формируем фильтры для вложенного resolver'а
-	// 				nestedReq := IndexRequest{
-	// 					Model: 		 parts[0],
-	// 					Preset:  	parts[1],
-	// 					Filters: map[string]any{
-	// 						field.FKField+"__in": ids,
-	// 					},					
-	// 					Offset: 0,
-	// 				}				
-	// 				if field.Sorts != nil {
-	// 					nestedReq.Sorts = field.Sorts
-	// 				} 
+				// Лимит 1 для has_one, иначе maxLimit
+				limit := uint64(maxLimit)
 				
-	// 				// Вызов рекурсивного Resolver
-	// 				nestedResult, err := Resolver(ctx, nestedReq)
-	// 				if err != nil {
-	// 					mu.Lock()// Лок для безопасного доступа к shared переменной
-	// 					nestedErr = fmt.Errorf("resolver: nested preset '%s' error: %w", nestedPresetName, err)
-	// 					mu.Unlock()
-	// 					return
-	// 				}
-	// 				grouped := groupBy(nestedResult, field.FKField)
-	// 				mu.Lock()
-	// 				// Сохраняем в hasManyData по JSON alias-ключу
-	// 				hasManyData[field.Alias] = grouped
-	// 				mu.Unlock()// Освобождаем лок
-	// 			}()	
-	// 		}
-	// 		wg.Wait()// Ждем завершения всех горутин
-	// 		if nestedErr != nil {
-	// 			return nil, nestedErr
-	// 		}
-	// 		// 3. Преобразуем кэшированные строки в JSON с учетом has_many данных
-	// 		raw, err := p.DataToJSON(cachedRows, hasManyData)
-	// 		if err != nil {
-	// 			return nil, fmt.Errorf("resolver: scan error: %w", err)
-	// 		}
-	// 		// Приводим []any → []map[string]any
-	// 		results, err := CastToMapSlice(raw)
-	// 		if err != nil {
-	// 			return nil, err
-	// 		}
-	// 	return results, nil
-	// }
-	return nil, fmt.Errorf("resolver: not implemented yet")
+        // рекурсивный вызов того же Resolver
+				var childReq IndexRequest
+				synthetic := makeSyntheticPreset(childPreset, fk)
+        if t.Rel.Through == "" {
+            // прямой has_
+            childFilters[fk+"__in"] = ids 
+        		childReq = IndexRequest{
+            	Model:   t.Rel.Model,
+            	Preset:  "",
+            	Filters: childFilters,
+            	Sorts:   nil,
+            	Offset:  0,
+            	Limit:   limit, // has_one отберём первый после группировки		
+							PresetObj: synthetic, 				
+        		}
+					} else {
+						childReq, err = MakeThroughChildRequest(m, t.Rel, t.NestedPreset, ids)
+						if err != nil {
+							mu.Lock(); rerr = fmt.Errorf("tail '%s': %w", t.FieldAlias, err); mu.Unlock()
+							return
+						}
+					}	
+				log.Printf("Resolver: child request for tail '%s': %+v", t.FieldAlias, childReq)
+        childItems, err := Resolver(ctx, childReq)
+        if err != nil {
+            mu.Lock(); rerr = fmt.Errorf("tail '%s': %w", t.FieldAlias, err); mu.Unlock()
+            return
+        }
+				log.Printf("Resolver: child items for tail '%s': %+v rows", t.FieldAlias, childItems)
+        // сгруппируем дочерние по FK (он указывает на родителя)
+        g := make(grouped)
+        for _, row := range childItems {
+            pid := row[fk]
+            g[pid] = append(g[pid], row)
+        }
+
+        mu.Lock()
+        groupedByAlias[t.FieldAlias] = g
+        mu.Unlock()
+    	}()
+		}
+
+		wg.Wait()
+		if rerr != nil {
+    return nil, rerr
+	}
+	// 5) Собираем итоговые элементы, склеивая хвосты по алиасам
+	for i := range items {
+		for _, t := range tails {
+    	pid := items[i][t.Rel.PK]
+    	if groups, ok := groupedByAlias[t.FieldAlias][pid]; ok {
+				if t.LimitOne {
+					items[i][t.FieldAlias] = groups[0]					
+    			delete(groups[0], t.Rel.FK)
+					
+					} else {	
+						items[i][t.FieldAlias] = groups 
+						for _, row := range groups {
+    					delete(row, t.Rel.FK)
+						}
+					}
+    	} else {
+        items[i][t.FieldAlias] = nil 
+			}
+		}	
+	}	
+	// 8) финализация formatter/computed уже ПОСЛЕ склейки
+	if err := finalizeItems(m, preset, items); err != nil {
+			return nil, fmt.Errorf("resolver: finalize: %w", err)
+	}
+	// 9) for Through: развернём вложенные preset-поля
+	if req.PresetObj != nil && req.UnwrapField != "" {
+    // fk ты уже знаешь (это Source первого поля синтетического пресета)
+    fk := req.PresetObj.Fields[0].Source
+    items = unwrapThrough(items, fk, req.UnwrapField)
+    return items, nil
+	} 
+  return items, nil
 }
+
+type TailSpec struct {
+    FieldAlias   string        // ключ в JSON (имя поля пресета)
+    RelKey       string        // ключ связи в родительской модели
+    Rel          *model.ModelRelation
+    NestedPreset string        // как в YAML (Model.Preset или Preset)
+    LimitOne     bool
+}
+// Собираем хвосты (has_one/has_many) из пресета, рекурсивно проходя belongs_to
+func collectTails(m *model.Model, p *model.DataPreset) []TailSpec {
+    var out []TailSpec
+    if p == nil { return out }
+    for _, f := range p.Fields {
+        if f.Type != "preset" { continue }
+        rel, ok := m.Relations[f.Source]
+        if !ok || rel == nil { continue }
+
+        switch rel.Type {
+        case "belongs_to":
+            // рекурсивно вглубь
+            var nested *model.DataPreset
+						nestedModel := rel.GetModelRef()
+						if nestedModel != nil {            
+                nested = nestedModel.Presets[f.NestedPreset]
+            }
+            if nested != nil  {
+                out = append(out, collectTails(nestedModel, nested)...)
+            }
+
+        case "has_one", "has_many":
+            out = append(out, TailSpec{
+                FieldAlias:   f.Alias,
+                RelKey:       f.Source,
+                Rel:          rel,
+                NestedPreset: f.NestedPreset,
+                LimitOne:     rel.Type == "has_one",
+            })
+        }
+    }
+    return out
+}
+
+// req.UnwrapField: например, "contact"
+// fk: имя FK, которое ты положил в синтетический пресет (например "person_id")
+
+func unwrapThrough(items []map[string]any, fk, unwrap string) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		// самый простой путь: ожидаем map у it[unwrap]
+		if payload, ok := it[unwrap].(map[string]any); ok && len(payload) > 0 {
+			row := make(map[string]any, len(payload)+1)
+			row[fk] = it[fk] // оставить ключ для группировки родителем
+			for k, v := range payload {
+				row[k] = v
+			}
+			out = append(out, row)
+			continue
+		}	
+	}
+	return out
+}
+
+

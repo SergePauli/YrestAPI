@@ -25,7 +25,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
 	log.Printf("Incoming index request: %+v\n", req)
+	
 
 	// Вызываем Resolver
 	result, err := resolver.Resolver(r.Context(), req)

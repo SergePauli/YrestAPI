@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var Conn *pgx.Conn
+var Pool *pgxpool.Pool
+
 
 func InitPostgres(dsn string) error {
 	if dsn == "" {
@@ -16,16 +18,29 @@ func InitPostgres(dsn string) error {
 		log.Println("⚠️ Using default Postgres DSN")
 	}
 
-	var err error
-	Conn, err = pgx.Connect(context.Background(), dsn)
+	// Настраиваем конфиг пула
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return fmt.Errorf("connect pgx: %w", err)
+		return fmt.Errorf("parse pool config: %w", err)
+	}
+
+	// Пример настройки параметров пула
+	cfg.MaxConns = 20                   // максимальное число соединений
+	cfg.MinConns = 2                    // минимальное число соединений
+	cfg.MaxConnLifetime = time.Hour     // время жизни соединения
+	cfg.MaxConnIdleTime = time.Minute*5 // время простоя до закрытия соединения
+
+	// Создаём пул
+	Pool, err = pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		return fmt.Errorf("connect pgx pool: %w", err)
 	}
 
 	// Проверка подключения
-	if err := Conn.Ping(context.Background()); err != nil {
-		return fmt.Errorf("ping pgx: %w", err)
+	if err := Pool.Ping(context.Background()); err != nil {
+		return fmt.Errorf("ping pgx pool: %w", err)
 	}
 
+	log.Println("✅ Postgres pool connected")
 	return nil
 }

@@ -41,13 +41,14 @@ func hasPresetCycle(modelName, presetName string, visited map[string]bool, path 
 
 	for _, f := range preset.Fields {
 		if f.NestedPreset != "" {
-			parts := strings.Split(f.NestedPreset, ".")
-			if len(parts) != 2 {
-				log.Printf("⚠️ Invalid nested preset name: %s", f.NestedPreset)
+			nestedPreset := model.Relations[f.Source]._ModelRef.Presets[f.NestedPreset]
+			nestedModel:= model.Relations[f.Source].Model
+			if nestedPreset == nil {
+				log.Printf("⚠️ Invalid nested preset name: %s, for %s", f.NestedPreset, nestedModel)
 				continue
 			}
-			nestedModel, nestedPreset := parts[0], parts[1]
-			if hasPresetCycle(nestedModel, nestedPreset, copyMap(visited), append(path, fullName)) {
+			
+			if hasPresetCycle(nestedModel, f.NestedPreset, copyMap(visited), append(path, fullName)) {
 				return true
 			}
 		}

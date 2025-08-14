@@ -5,6 +5,7 @@ type Model struct {
 	Table   string   `yaml:"table"`
 	Relations map[string]*ModelRelation  `yaml:"relations"`
 	Presets 	map[string]*DataPreset `yaml:"presets"`
+	PrimaryKeys []string                   `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
 	// Runtime only — карта алиасов, используемая в текущем запросе
 	_AliasMap *AliasMap `yaml:"-"` // <-- Несериализуемое поле
 }
@@ -37,12 +38,12 @@ type DataPreset struct {
 }
 // Preset описывает структуру поля пресета для SQL-запросов
 type Field struct {
-	Source       string   `yaml:"source"`        // example: "addresses.id"
+	Source       string   `yaml:"source"`        // example: "id"
 	Formatter		 string	  `yaml:"formatter"`     // example"{surname} {name}[0].{patrname}[0]."
 	Alias        string   `yaml:"alias"`         // optional override
 	Type         string   `yaml:"type"`          // "int", "string", "array", "bool"
 	NestedPreset string   `yaml:"preset"` // name of another preset
-	Select       string   `yaml:"select"`        // for computed SQL expression	
+	Internal bool     `yaml:"internal"`      // если true, то поле не будет включено в ответ
 	// для runtime (не сериализуется)
 	_PresetRef *DataPreset `yaml:"-"`
 }
@@ -55,4 +56,35 @@ type JoinSpec struct {
 	Distinct   bool
 	Conditions []string
 	Where string
+}
+
+// GetPrimaryKeys возвращает список полей первичного ключа для модели.
+// Если не задано в конфиге, по умолчанию возвращает ["id"].
+func (m *Model) GetPrimaryKeys() []string {
+    if len(m.PrimaryKeys) > 0 {
+        return m.PrimaryKeys
+    }
+    // fallback по умолчанию
+    return []string{"id"}
+}
+
+// GetModelRef возвращает ссылку на модель, если она уже загружена,
+func (m *ModelRelation) GetModelRef() *Model {
+	if m._ModelRef == nil {
+		return Registry[m.Model]
+	}
+	return m._ModelRef
+}
+
+// GetThroughRef возвращает ссылку на промежуточную модель, если она задана
+// Если не задано, ищет в Registry по имени через "Through".
+func (m *ModelRelation) GetThroughRef() *Model {
+	if m._ThroughRef == nil {
+		return Registry[m.Through]
+	}
+	return m._ThroughRef
+}
+
+func (f *Field) SetPresetRef( preset *DataPreset) {
+	f._PresetRef = preset
 }

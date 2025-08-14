@@ -15,12 +15,25 @@ func (m *Model) DetectJoins(
 	sortFields []string, // опционально
 	presetFields []string, // опционально.
 ) ([]*JoinSpec, error) {
-	joinMap := map[string]*JoinSpec{}	
+	joinMap := map[string]*JoinSpec{}		
 	joins := make([]*JoinSpec, 0)
-	toAdd, err := detectJoinsRecursive(m, filterFields, joinMap, "", "main",false, m._AliasMap)
+	aliasMap := m._AliasMap
+
+	// Объединяем все поля в единый список для рекурсивного поиска
+	allFields := make([]string, 0, len(filterFields)+len(sortFields)+len(presetFields))
+	allFields = append(allFields, filterFields...)
+	if sortFields != nil {
+		allFields = append(allFields, sortFields...)
+	}
+	if presetFields != nil {
+		allFields = append(allFields, presetFields...)
+	}
+	// detectJoinsRecursive рекурсивно определяет JOIN-ы для модели на основе filters
+	toAdd, err := detectJoinsRecursive(m, allFields, joinMap, "", "main",false, aliasMap)
 	if err != nil {
 		return nil, err
 	}
+	// Добавляем JOIN-ы filters
 	joins = append(joins, toAdd...)
 	return joins, nil
 }

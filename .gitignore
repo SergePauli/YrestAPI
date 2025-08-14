@@ -1,6 +1,7 @@
 # Go build
 /bin/
 /tmp/
+/db/
 *.exe
 *.exe~
 *.dll

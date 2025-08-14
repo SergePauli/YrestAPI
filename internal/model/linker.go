@@ -3,79 +3,114 @@ package model
 import (
 	"fmt"
 	"log"
-	"strings"
+
 	"unicode"
 )
 
 func LinkModelRelations() error {
 	for modelName, model := range Registry {
-		// Validate and link relations
+		// 1. Link & validate relations
 		for relName, rel := range model.Relations {
+			// Модель должна существовать
 			targetModel, ok := Registry[rel.Model]
 			if !ok {
-				return fmt.Errorf("invalid relation: model '%s' not found in '%s.%s'", rel.Model, modelName, relName)
+				return fmt.Errorf("invalid relation: model '%s' not found in '%s.%s'",
+					rel.Model, modelName, relName)
 			}
 			rel._ModelRef = targetModel
-			// Присваиваем FK по умолчанию, если не задан
-			switch rel.Type {
+
+			// FK по умолчанию
+			if rel.FK == "" {
+				switch rel.Type {
 				case "belongs_to":
-				// FK должен быть в текущей модели, указывать на связанную
-				rel.FK = relName + "_id" // Ок
+					// FK в текущей модели, указывает на связанную
+					rel.FK = relName + "_id"
 				case "has_one", "has_many":
-				// FK находится в связанной модели и указывает на текущую
-				rel.FK = toSnakeCase(modelName) + "_id" // ← Здесь важно использовать текущую модель
+					// FK в связанной модели, указывает на текущую
+					rel.FK = toSnakeCase(modelName) + "_id"
+				}
 			}
 
-			// Присваиваем PK по умолчанию, если не задан
+			// PK по умолчанию
 			if rel.PK == "" {
 				rel.PK = "id"
 			}
 
-			// Валидация: if through указано — оно должно быть валидной моделью
+			// Проверка through
 			if rel.Through != "" {
 				throughModel, ok := Registry[rel.Through]
-    		if !ok {
-        	return fmt.Errorf(
-            "invalid through: model '%s' not found in '%s.%s'",
-            rel.Through, modelName, relName,
-        	)
-    		}
-    		// Ищем связь из промежуточной модели к конечной
-    		var found bool
-    		for _, throughRel := range throughModel.Relations {
-        		if throughRel.Model == rel.Model {            
-            	found = true
-            	break
-        		}
-    		}
-    		if !found {
-        	return fmt.Errorf(
-            "invalid through: no relation from '%s' to '%s' found in '%s.%s'",
-            rel.Through, rel.Model, modelName, relName,
-        	)
-    		} else {
-					rel._ThroughRef = throughModel
+				if !ok {
+					return fmt.Errorf("invalid through: model '%s' not found in '%s.%s'",
+						rel.Through, modelName, relName)
+				}
+				rel._ThroughRef = throughModel
+
+				// Проверяем, что из throughModel есть связь к конечной модели
+				var found bool
+				for _, throughRel := range throughModel.Relations {
+					if throughRel.Model == rel.Model {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return fmt.Errorf("invalid through: no relation from '%s' to '%s' found in '%s.%s'",
+						rel.Through, rel.Model, modelName, relName)
 				}
 			}
 
-			// Валидация: проверяем, что есть хотя бы одна связь
-			// с типом has_one, has_many или belongs_to
+			// Проверка типа связи
 			if rel.Type != "has_many" && rel.Type != "has_one" && rel.Type != "belongs_to" {
-					return fmt.Errorf("relation '%s.%s' must have valid Type (has_many, has_one, belongs_to), got '%s'", modelName, relName, rel.Type)
+				return fmt.Errorf("relation '%s.%s' has invalid type '%s' (must be has_many, has_one, belongs_to)",
+					modelName, relName, rel.Type)
 			}
+
 			model.Relations[relName] = rel
 		}
 
-		// Link and validate nested_presets
-		for i := range model.Presets {
-			for j := range model.Presets[i].Fields {
-				f := &model.Presets[i].Fields[j]
-				if f.NestedPreset != "" {
-					preset := FindPresetByName(f.NestedPreset)
-					if preset == nil {
-						return fmt.Errorf("nested preset '%s' not found in %s", f.NestedPreset, modelName)
+		// 2. Link & validate presets
+		for presetName, preset := range model.Presets {
+			// Если нет fields — создаём пустой слайс
+			if preset.Fields == nil {
+				preset.Fields = []Field{}
+				log.Printf("Warning: preset '%s' in model '%s' has no fields defined", presetName, modelName)
+			}
+
+			// Проверяем каждое поле
+			for fi := range preset.Fields {
+				f := &preset.Fields[fi]
+
+				// Проверка preset-полей
+				if f.Type == "preset" {
+					// 2.1 Должно быть указано nested_preset
+					if f.NestedPreset == "" {
+						return fmt.Errorf("field '%s' in preset '%s' of model '%s' has type 'preset' but no nested_preset is defined",
+							f.Alias, presetName, modelName)
 					}
-					f._PresetRef = preset
+
+					// 2.2 Должна быть валидная relation
+					rel, ok := model.Relations[f.Source]
+					if !ok {
+						return fmt.Errorf("field '%s' in preset '%s' refers to missing relation '%s' in model '%s'",
+							f.Alias, presetName, f.Source, modelName)
+					}
+
+					// 2.3 У relation должен быть целевой modelRef
+					nestedModel := rel._ModelRef
+					if nestedModel == nil {
+						return fmt.Errorf("field '%s' in preset '%s' refers to relation '%s' with nil model in '%s'",
+							f.Alias, presetName, f.Source, modelName)
+					}
+
+					// 2.4 nested_preset должен существовать в целевой модели
+					nestedPreset := nestedModel.Presets[f.NestedPreset]
+					if nestedPreset == nil {
+						return fmt.Errorf("nested preset '%s' not found in model '%s' (referenced from '%s.%s')",
+							f.NestedPreset, nestedModel.Table, modelName, presetName)
+					}
+
+					// Линкуем
+					f._PresetRef = nestedPreset
 				}
 			}
 		}
@@ -83,24 +118,13 @@ func LinkModelRelations() error {
 	return nil
 }
 
-func FindPresetByName(fullName string) *DataPreset {
-	parts := strings.Split(fullName, ".")
-	if len(parts) != 2 {
-		log.Printf("Invalid preset name format: %s", fullName)
-		return nil
-	}
-	modelName := parts[0]
-	presetName := parts[1]
 
-	model, ok := Registry[modelName]
-	if !ok {
-		log.Printf("Model %s not found for preset %s", modelName, fullName)
-		return nil
-	}
 
-	preset, ok := model.Presets[presetName]
+func FindPresetByName(model *Model,name string) *DataPreset {	
+
+	preset, ok := model.Presets[name]
 	if !ok {
-		log.Printf("Preset %s not found in model %s", presetName, modelName)
+		log.Printf("Preset %s not found in model %s", name, model.Table)
 		return nil
 	}
 
