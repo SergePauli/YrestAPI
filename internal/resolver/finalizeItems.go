@@ -3,6 +3,7 @@ package resolver
 import (
 	"YrestAPI/internal/model"
 	"fmt"
+
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,17 +17,18 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 		return nil
 	}
 
-	// 1) посчитать все formatter'ы до удаления internal
+	// 1.1 удаляем префиксы alias'ов у preset-полей belongs_to
+	stripPresetPrefixes(m, p, items, "")
+	// 1.2 посчитать все formatter'ы до удаления internal
 	if err := applyAllFormatters(m, p, items, ""); err != nil {
 		return err
 	}
-	// 1.5 удаляем префиксы alias'ов у preset-полей belongs_to
-	stripPresetPrefixes(m, p, items, "")
 	// 2) собрать маркеры internal: префиксы-деревья и точные ключи
 	var (
 		prefixes []string // удалить всё, что key == prefix или начинается с "prefix."
 		exacts   []string // удалить ровно этот ключ
 	)
+	
 	collectInternalMarkers(m, p, "", &prefixes, &exacts)
 
 	// 3) удалить
@@ -34,6 +36,7 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 		return nil
 	}
 	for i := range items {
+		
 		// точные ключи
 		for _, k := range exacts {
 			delete(items[i], k)
@@ -49,15 +52,15 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 				}
 			}
 		}
+		
 	}
 	return nil
 }
 
-// рекурсивно обходит пресет и применяет formatter-поля
-// prefix — путь, формируемый как в ScanColumns: через relKey, а не alias поля
 func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) error {
 	for _, f := range p.Fields {
 		switch f.Type {
+
 		case "preset":
 			relKey := f.Source
 			rel, ok := m.Relations[relKey]
@@ -66,6 +69,7 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 				// внутрь уходим только по belongs_to
 				continue
 			}
+
 			// nested preset
 			var nested *model.DataPreset
 			if f.NestedPreset != "" {
@@ -74,20 +78,28 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			if nested == nil {
 				continue
 			}
-			nextPrefix := relKey
-			if prefix != "" {
-				nextPrefix = prefix + "." + relKey
-			}
-			if err := applyAllFormatters( nestedModel, nested, items, nextPrefix); err != nil {
+
+			// Рекурсивно обрабатываем вложенные форматтеры
+			if err := applyAllFormatters(nestedModel, nested, items, prefixFor(prefix, relKey)); err != nil {
 				return err
 			}
 
+			// Применяем formatter к belongs_to полю
+			if strings.TrimSpace(f.Formatter) != "" {
+				for i := range items {
+					if sub, ok := items[i][f.Alias].(map[string]any); ok {
+						items[i][f.Alias] = applyFormatter(f.Formatter, sub)
+					} else {
+						items[i][f.Alias] = ""
+					}
+				}
+			}
+
 		case "formatter":
-			// template находится в f.Source (как в твоём примере)
+			// template находится в f.Source
 			template := f.Source
 			target := f.Alias
 			if target == "" {
-				// разумный дефолт, если alias не задан
 				target = "value"
 			}
 			for i := range items {
@@ -95,11 +107,10 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			}
 
 		default:
-			// поддержим старый стиль, когда formatter был отдельным полем
+			// Старый стиль formatter как отдельное поле
 			if strings.TrimSpace(f.Formatter) != "" {
 				target := f.Alias
 				if target == "" {
-					// если alias не задан, пишем в имя поля
 					if prefix == "" {
 						target = f.Source
 					} else {
@@ -113,6 +124,13 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 		}
 	}
 	return nil
+}
+
+func prefixFor(base, relKey string) string {
+	if base == "" {
+		return relKey
+	}
+	return base + "." + relKey
 }
 
 // собирает списки internal-маркеров:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"YrestAPI/internal/db"
@@ -173,16 +174,27 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 		for _, t := range tails {
     	pid := items[i][t.Rel.PK]
     	if groups, ok := groupedByAlias[t.FieldAlias][pid]; ok {
-				if t.LimitOne {
-					items[i][t.FieldAlias] = groups[0]					
-    			delete(groups[0], t.Rel.FK)
-					
-					} else {	
-						items[i][t.FieldAlias] = groups 
-						for _, row := range groups {
-    					delete(row, t.Rel.FK)
-						}
-					}
+				 if t.LimitOne {
+                if t.Formatter != "" {
+                    items[i][t.FieldAlias] = applyFormatter(t.Formatter, groups[0])
+                } else {
+                    delete(groups[0], t.Rel.FK)
+                    items[i][t.FieldAlias] = groups[0]
+                }
+            } else {
+                if t.Formatter != "" {
+                    out := make([]string, len(groups))
+                    for idx, row := range groups {
+                        out[idx] = applyFormatter(t.Formatter, row)
+                    }
+                    items[i][t.FieldAlias] = out
+                } else {
+                    for _, row := range groups {
+                        delete(row, t.Rel.FK)
+                    }
+                    items[i][t.FieldAlias] = groups
+                }
+          }
     	} else {
         items[i][t.FieldAlias] = nil 
 			}
@@ -208,6 +220,7 @@ type TailSpec struct {
     Rel          *model.ModelRelation
     NestedPreset string        // как в YAML (Model.Preset или Preset)
     LimitOne     bool
+		Formatter  string // если задано, то применим formatter к каждому элементу
 }
 // Собираем хвосты (has_one/has_many) из пресета, рекурсивно проходя belongs_to
 func collectTails(m *model.Model, p *model.DataPreset) []TailSpec {
@@ -236,6 +249,7 @@ func collectTails(m *model.Model, p *model.DataPreset) []TailSpec {
                 RelKey:       f.Source,
                 Rel:          rel,
                 NestedPreset: f.NestedPreset,
+								Formatter:    strings.TrimSpace(f.Formatter),
                 LimitOne:     rel.Type == "has_one",
             })
         }
