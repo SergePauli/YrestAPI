@@ -68,3 +68,82 @@ go run main.go
 
   **where** — фильтры для конечной таблицы связи.
   **through_where** — фильтры для промежуточной таблицы при through-связях.
+  ---
+  ## Formatter — post-processing of preset fields
+
+Formatters transform or combine field values **after** the SQL query and after merging related data.  
+They are useful when you want to **collapse a nested preset into a string** or build a computed text field.
+
+---
+
+###  Syntax
+
+#### 1. Inline computed field
+```yaml
+- source: "{surname} {name}[0] {patronymic}[0..1]"
+  type: formatter
+  alias: full_name
+```
+
+#### 2. Formatter for a relation (preset)
+```yaml
+- source: contacts
+  type: preset
+  alias: phones
+  formatter: "{type}: {value}"
+  preset: phone_list
+```
+
+---
+
+###  Token rules
+Inside `{ ... }` you can use:
+- **Fields**: `{field}`
+- **Nested fields**: `{relation.field}`
+- **Character ranges**:  
+  `{name}[0]` → first character  
+  `{name}[0..1]` → first two characters
+
+---
+
+###  Behaviour by relation type
+| Relation type  | Result of formatter |
+|----------------|--------------------|
+| `belongs_to`   | String from related object |
+| `has_one`      | String from child object |
+| `has_many`     | Array of strings (one per child) |
+| Simple field   | String from current row |
+
+---
+
+###  Example
+```yaml
+presets:
+  card:
+    fields:
+      - source: id
+        type: int
+        alias: id
+      - source: "{person_name.value}"
+        type: formatter
+        alias: name
+      - source: contacts
+        type: preset
+        alias: contacts
+        formatter: "{type}: {value}"
+        preset: contact_short
+```
+
+**Result:**
+```json
+[
+  {
+    "id": 64,
+    "name": "Иванов А В",
+    "contacts": [
+      "Phone: +7 923 331 49 55",
+      "Email: example@mail.com"
+    ]
+  }
+]
+```
