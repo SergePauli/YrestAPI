@@ -3,10 +3,13 @@ package model
 import (
 	"fmt"
 	"log"
+	"regexp"
 
 	"unicode"
 )
 
+// где-нибудь на уровне пакета (или один раз выше по коду)
+var formatterSrcRe = regexp.MustCompile(`\{[^}]+\}`)	
 func LinkModelRelations() error {
 	for modelName, model := range Registry {
 		// 1. Link & validate relations
@@ -75,31 +78,39 @@ func LinkModelRelations() error {
 				preset.Fields = []Field{}
 				log.Printf("Warning: preset '%s' in model '%s' has no fields defined", presetName, modelName)
 			}
-
+			preset.Name = presetName
 			// Проверяем каждое поле
 			for fi := range preset.Fields {
-				f := &preset.Fields[fi]
-
+				f := &preset.Fields[fi]				
+				fieldName := f.Alias	
+				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter" — ошибка.
+				isFormatterSrc := formatterSrcRe.MatchString(f.Source)
+				if isFormatterSrc && f.Type != "formatter" {
+					return fmt.Errorf(
+						"field '%s' in preset '%s' of model '%s' uses template-like source '%s' but its type is '%s'; expected type 'formatter'",
+					fieldName, presetName, modelName, f.Source, f.Type,
+					)
+				}	
 				// Проверка preset-полей
 				if f.Type == "preset" {
 					// 2.1 Должно быть указано nested_preset
 					if f.NestedPreset == "" {
 						return fmt.Errorf("field '%s' in preset '%s' of model '%s' has type 'preset' but no nested_preset is defined",
-							f.Alias, presetName, modelName)
+							fieldName, presetName, modelName)
 					}
 
 					// 2.2 Должна быть валидная relation
 					rel, ok := model.Relations[f.Source]
 					if !ok {
 						return fmt.Errorf("field '%s' in preset '%s' refers to missing relation '%s' in model '%s'",
-							f.Alias, presetName, f.Source, modelName)
+							fieldName, presetName, f.Source, modelName)
 					}
 
 					// 2.3 У relation должен быть целевой modelRef
 					nestedModel := rel._ModelRef
 					if nestedModel == nil {
 						return fmt.Errorf("field '%s' in preset '%s' refers to relation '%s' with nil model in '%s'",
-							f.Alias, presetName, f.Source, modelName)
+							fieldName, presetName, f.Source, modelName)
 					}
 
 					// 2.4 nested_preset должен существовать в целевой модели
