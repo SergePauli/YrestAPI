@@ -17,11 +17,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
     m, ok := model.Registry[req.Model]
     if !ok { return nil, fmt.Errorf("resolver: model not found: %s", req.Model) }
     // Получаем карту алиасов из Redis или строим на лету
-		err := m.GetAliasMapFromRedisOrBuild(ctx, req.Model)
-		if err != nil {
-			log.Printf("resolver: alias map error: %v", err)
-	 		return nil, fmt.Errorf("alias map error: %s", err)
-		}
+	err := m.GetAliasMapFromRedisOrBuild(ctx, req.Model)
+	if err != nil {
+		log.Printf("resolver: alias map error: %v", err)
+	 	return nil, fmt.Errorf("alias map error: %s", err)
+	}
 		var preset *model.DataPreset
 		if (req.Preset != "") {
     	preset = m.GetPreset(req.Preset)
@@ -44,7 +44,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
     if err != nil { return nil, err }
     defer rows.Close()
 
-		// твоя функция, восстанавливающая поля из aliasMap
+		// функция, восстанавливающая поля из aliasMap
     items, err := m.ScanFlatRows(rows, preset) 
     if err != nil { return nil, err }
     if len(items) == 0 { return items, nil }
@@ -60,15 +60,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 			return items, nil
 		}
 
-    // 3) Собираем parentIDs отдельно для КАЖДОГО хвоста, используя rel.PK
-		type idSet map[any]struct{}
+        // 3) Собираем parentIDs отдельно для КАЖДОГО хвоста, используя rel.PK
+	type idSet map[any]struct{}
 		parentIDsByTail := make(map[string][]any) // FieldAlias -> []id
 
 		for _, t := range tails {
     	// ключ родителя, который участвует в связи
     	pkName := t.Rel.PK
-    	
-
     	seen := make(idSet)
     	ids := make([]any, 0, len(items))
     	for _, it := range items {
@@ -79,8 +77,10 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
             }
         }
     	}
-    	parentIDsByTail[t.FieldAlias] = ids
-		}
+        parentIDsByTail[t.FieldAlias] = ids
+        //log.Printf("parentIDsByTail[%s] = %+v", t.FieldAlias, parentIDsByTail[t.FieldAlias])
+	}
+        
     type grouped = map[any][]map[string]any
 		groupedByAlias := make(map[string]grouped)
 
@@ -88,8 +88,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 		var mu sync.Mutex
 		var rerr error
 
-		for _, t := range tails {
-    	t := t
+		for _, t := range tails {    	
     	ids := parentIDsByTail[t.FieldAlias]
     	if len(ids) == 0 {
         continue
@@ -120,8 +119,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
         childFilters := map[string]any{}
         fk := t.Rel.FK
 
-				// Лимит 1 для has_one, иначе maxLimit
-				limit := uint64(maxLimit)
+		// Лимит 1 для has_one, иначе maxLimit
+		limit := uint64(maxLimit)
+        if t.Rel.Where != "" {
+            if key, val, ok := parseCondition(t.Rel.Where); ok {
+                childFilters[key] = val
+            }
+	    }
 				
         // рекурсивный вызов того же Resolver
 				var childReq IndexRequest
@@ -145,13 +149,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 							return
 						}
 					}	
-				log.Printf("Resolver: child request for tail '%s': %+v", t.FieldAlias, childReq)
+		//log.Printf("Resolver: child request for tail '%s': %+v", t.FieldAlias, childReq)
         childItems, err := Resolver(ctx, childReq)
         if err != nil {
             mu.Lock(); rerr = fmt.Errorf("tail '%s': %w", t.FieldAlias, err); mu.Unlock()
             return
         }
-				log.Printf("Resolver: child items for tail '%s': %+v rows", t.FieldAlias, childItems)
+		//log.Printf("Resolver: child items for tail '%s': %+v rows", t.FieldAlias, childItems)
         // сгруппируем дочерние по FK (он указывает на родителя)
         g := make(grouped)
         for _, row := range childItems {

@@ -34,6 +34,7 @@ type ModelRelation struct {
 
 // DataPreset описывает структуру пресета в конфигурации
 type DataPreset struct {	
+	Name string `yaml:"-"`
 	Fields []Field `yaml:"fields"` // fields in this preset
 }
 // Preset описывает структуру поля пресета для SQL-запросов
@@ -44,6 +45,7 @@ type Field struct {
 	Type         string   `yaml:"type"`          // "int", "string", "array", "bool"
 	NestedPreset string   `yaml:"preset"` // name of another preset
 	Internal bool     `yaml:"internal"`      // если true, то поле не будет включено в ответ
+	Localize     bool   `yaml:"localize"` // ← новый флаг
 	// для runtime (не сериализуется)
 	_PresetRef *DataPreset `yaml:"-"`
 }

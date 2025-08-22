@@ -54,14 +54,13 @@ func MakeThroughChildRequest(
 	}
 	belongsField.SetPresetRef(nested) // важно, чтобы не искать по имени позже
 	synthetic := &model.DataPreset{		
+		Name: nestedPreset,
 		Fields: []model.Field{
 			{Source: fk, Type: "int", Alias: fk},
 			belongsField, // поле с belongs_to на конечную модель
 		},
 	}
-
 	
-
 	// Логическое имя промежуточной модели (ключ в Registry)
 	throughModelName := ""
 	for name, ptr := range model.Registry {
@@ -83,6 +82,16 @@ func MakeThroughChildRequest(
 		Limit:     maxLimit,
 		UnwrapField: unwrapKey, // например "contact"
 	}
+	if rel.ThroughWhere != "" {
+    if key, val, ok := parseCondition(rel.ThroughWhere); ok {
+        req.Filters[key] = val
+    }
+	}
+	if rel.Where != "" {
+    if key, val, ok := parseCondition(rel.Where); ok {
+        req.Filters[unwrapKey+"."+key] = val
+    }
+	}
 	return req, nil
 }
 
@@ -101,6 +110,7 @@ func makeSyntheticPreset(orig *model.DataPreset, fk string) *model.DataPreset {
     fields = append(fields, orig.Fields...)
 
     return &model.DataPreset{
+				Name: orig.Name, 
         Fields: fields,
     }
 }

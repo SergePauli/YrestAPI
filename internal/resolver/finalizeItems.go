@@ -23,6 +23,9 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	if err := applyAllFormatters(m, p, items, ""); err != nil {
 		return err
 	}
+	if model.HasLocales {
+		applyLocalization(m, p, items) // или locale из запроса
+	}
 	// 2) собрать маркеры internal: префиксы-деревья и точные ключи
 	var (
 		prefixes []string // удалить всё, что key == prefix или начинается с "prefix."

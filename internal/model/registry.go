@@ -1,8 +1,12 @@
 package model
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+)
 
 var Registry = map[string]*Model{}
+
 
 func InitRegistry(dir string) error {
 	if err := LoadModelsFromDir(dir); err != nil {
@@ -29,4 +33,23 @@ func (m *Model) GetRelation(alias string) *ModelRelation {
 		return nil
 	}
 	return m.Relations[alias]
+}
+
+func GetModelName(m *Model) string {
+	for name, model := range Registry {
+		if model == m {
+			return name
+		}
+	}
+	return ""
+}
+
+func GetPresetName(m *Model, p *DataPreset) string {
+	if (p==nil) {log.Println("p==nil in GetPresetName")}
+	for name, preset := range m.Presets {
+		if preset == p {
+			return name
+		}
+	}
+	return ""
 }

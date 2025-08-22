@@ -2,8 +2,11 @@ package model
 
 import (
 	"fmt"
+
+	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -20,7 +23,7 @@ func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset) ([]map[string]an
 	}
 
 	// 1) Восстанавливаем список выражений колонок так же, как их формировал BuildIndexQuery
-	cols := m.ScanColumns(preset, aliasMap, "")
+	cols, types := m.ScanColumns(preset, aliasMap, "")
 	if len(cols) == 0 {
 		return nil, fmt.Errorf("no columns resolved for scan (preset=%v)", preset != nil)
 	}
@@ -46,20 +49,50 @@ func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset) ([]map[string]an
 	// 3) Читаем строки
 	out := make([]map[string]any, 0, 64)
 	for rows.Next() {
-		vals, err := rows.Values()
-		if err != nil {
-			return nil, err
-		}
-		// На всякий случай — берём минимум от фактических и ожидаемых колонок
-		n := len(vals)
-		if len(keys) < n {
-			n = len(keys)
-		}
-		row := make(map[string]any, n)
-		for i := 0; i < n; i++ {
-			row[keys[i]] = vals[i]
-		}
-		out = append(out, row)
+    vals, err := rows.Values()
+    if err != nil {
+        return nil, err
+    }
+		
+    row := make(map[string]any, len(cols))    
+    for i, expr := range keys {
+        v := vals[i]				
+        switch types[cols[i]] {
+        case "UUID":
+            switch val := v.(type) {
+    					case []byte:
+        				if id, err := uuid.FromBytes(val); err == nil {
+            		v = id.String()
+        			}
+    					case [16]byte: // вот этот кейс и срабатывает у pgx
+        				if id, err := uuid.FromBytes(val[:]); err == nil {
+            		v = id.String()
+        			}
+    					case uuid.UUID: // если pgx уже вернул готовый тип
+        				v = val.String()
+    				}
+        case "int":
+            // pgx чаще отдаёт int64 сразу, но если []byte — конвертируем
+            if b, ok := v.([]byte); ok {
+                v, _ = strconv.ParseInt(string(b), 10, 64)
+            }
+        case "float":
+            if b, ok := v.([]byte); ok {
+                v, _ = strconv.ParseFloat(string(b), 64)
+            }
+        case "bool":
+            if b, ok := v.([]byte); ok {
+                v = (string(b) == "t")
+            }
+        case "string":
+            if b, ok := v.([]byte); ok {
+                v = string(b)
+            }
+        }
+        row[expr] = v
+        i++
+    }
+		out = append(out, row)		
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

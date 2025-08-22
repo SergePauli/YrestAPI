@@ -9,11 +9,13 @@ import (
 // - belongs_to: рекурсивный проход по nested preset связанной модели
 // - has_one/has_many: добавить РОВНО ОДИН ключ родителя — <parentAlias>.<rel.PK>
 //   (этого достаточно, чтобы затем догружать has_* по IDs)
-func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix string) []string {
+func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix string) ([]string, map[string]string) {
+
 	if preset == nil {
-		return nil
+		return nil, nil
 	}
-	cols := make([]string, 0, 16)
+	cols := make([]string,0)
+	types := make(map[string]string)
 	seen := make(map[string]struct{})
 
 	aliasFor := func(path string) string {
@@ -25,11 +27,12 @@ func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix strin
 		}
 		return "main" // безопасный дефолт: алиас корня
 	}
-	addCol := func(expr string) {
+	addCol := func(expr string, fType string) {
 		if _, ok := seen[expr]; ok {
 			return
 		}
 		seen[expr] = struct{}{}
+		types[expr] = fType
 		cols = append(cols, expr)
 	}
 
@@ -63,9 +66,9 @@ func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix strin
 				if prefix != "" {
 					nextPrefix = prefix + "." + relKey
 				}
-				sub := rel._ModelRef.ScanColumns(nested, aliasMap, nextPrefix)
+				sub, subtypes := rel._ModelRef.ScanColumns(nested, aliasMap, nextPrefix)
 				for _, c := range sub {
-					addCol(c)
+					addCol(c, subtypes[c])
 				}
 
 			case "has_one", "has_many":
@@ -75,21 +78,21 @@ func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix strin
 				expr:= fmt.Sprintf("%s.%s", parentAlias, pk)				
 				// не добавлять, если уже есть (сравнение по точному expr)
         if _, ok := seen[expr]; !ok {
-            addCol(expr)
+            addCol(expr,"int")
         }
 			}
 			case "formatter":
     		// форматтер в SELECT не добавляем — он считается в finalizeItems
     		continue
-			case "int", "string", "bool", "float":
+			case "int", "string", "bool", "float", "UUID", "time":
     		// обычные SQL-колонки
     		a := aliasFor(prefix)
-    		addCol(fmt.Sprintf("%s.%s", a, f.Source))
+    		addCol(fmt.Sprintf("%s.%s", a, f.Source), f.Type)
 			default:
     	// на всякий — ничего не добавляем
     	continue
 		}
 	}
 
-	return cols
+	return cols, types
 }

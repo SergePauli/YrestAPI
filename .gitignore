@@ -2,6 +2,7 @@
 /bin/
 /tmp/
 /db/
+/cfg/
 *.exe
 *.exe~
 *.dll

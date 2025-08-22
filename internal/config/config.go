@@ -13,6 +13,7 @@ type Config struct {
 	PostgresDSN string
 	RedisAddr   string
 	ModelsDir  string
+	Locale      string
 }
 
 func LoadConfig() *Config {
@@ -23,6 +24,7 @@ func LoadConfig() *Config {
 		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/app?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 		ModelsDir:   getEnv("MODELS_DIR", "./db"),
+		Locale:   	 getEnv("LOCALE", "en"),
 	}
 
 	return cfg

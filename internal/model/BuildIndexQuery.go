@@ -61,7 +61,8 @@ func (m *Model) BuildIndexQuery(
 		}
 	}
 	// 3.1. Добавляем поля из пресета	
-	selectCols := m.ScanColumns(preset, m._AliasMap, "")
+	 selectCols,_ := m.ScanColumns(preset, m._AliasMap, "")	
+ 
 	if hasDistinct {
     pkFields := m.GetPrimaryKeys() // []string, например ["person.id", "person.code"]
 		if len(pkFields) == 1 {

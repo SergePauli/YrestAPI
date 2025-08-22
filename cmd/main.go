@@ -33,6 +33,15 @@ func main() {
 		log.Fatalf("❌ InitRegistry failed: %v", err)
 	}
 	fmt.Println("✅ All Models and Presets initialized")  
+	// Load locales if available
+	// This is optional, so we handle errors gracefully
+	// If locales are not found, we just disable localization	
+	if err := model.LoadLocales(cfg.Locale); err != nil {		
+		log.Printf("⚠️ LoadLocales: %v (localization disabled)", err)
+		model.HasLocales = false
+	} else {
+		model.HasLocales = true
+	}
   // Initialize routes
   router.InitRoutes()
   // Start HTTP server

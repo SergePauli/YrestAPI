@@ -180,7 +180,7 @@ func detectJoinsRecursive(
 // Используется для генерации алиасов, которые не конфликтуют с уже существующими
 func generateUniqueAlias(existing map[string]*JoinSpec) string {
     for {
-        alias := randomAlias(2) // например "ab", "xz"
+        alias := randomAlias(3) // например "ab", "xz"
         if _, exists := existing[alias]; !exists {
             return alias
         }
@@ -190,7 +190,7 @@ func generateUniqueAlias(existing map[string]*JoinSpec) string {
 // randomAlias генерирует случайный алиас из букв
 // Используется для создания уникальных алиасов в JOIN-ах
 func randomAlias(length int) string {
-    letters := []rune("abcdefghijklmnopqrstuvwxyz")
+    letters := []rune("bcfghjklmnpqrstvwxz")
     b := make([]rune, length)
     for i := range b {
         b[i] = letters[rand.Intn(len(letters))]
