@@ -81,7 +81,8 @@ func LinkModelRelations() error {
 			preset.Name = presetName
 			// Проверяем каждое поле
 			for fi := range preset.Fields {
-				f := &preset.Fields[fi]				
+				f := &preset.Fields[fi]		
+				if (f.Alias == "") {f.Alias = f.Source}		
 				fieldName := f.Alias	
 				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter" — ошибка.
 				isFormatterSrc := formatterSrcRe.MatchString(f.Source)
