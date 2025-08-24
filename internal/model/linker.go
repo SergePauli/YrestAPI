@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 
 	"unicode"
 )
@@ -82,16 +83,26 @@ func LinkModelRelations() error {
 			// Проверяем каждое поле
 			for fi := range preset.Fields {
 				f := &preset.Fields[fi]		
-				if (f.Alias == "") {f.Alias = f.Source}		
-				fieldName := f.Alias	
+						
+					
 				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter" — ошибка.
 				isFormatterSrc := formatterSrcRe.MatchString(f.Source)
 				if isFormatterSrc && f.Type != "formatter" {
 					return fmt.Errorf(
 						"field '%s' in preset '%s' of model '%s' uses template-like source '%s' but its type is '%s'; expected type 'formatter'",
-					fieldName, presetName, modelName, f.Source, f.Type,
+					f.Alias, presetName, modelName, f.Source, f.Type,
 					)
-				}	
+				} else if (isFormatterSrc) {	
+				// 2.1) Если поле — formatter → алиас обязателен	
+					if strings.TrimSpace(f.Alias) == "" {
+						return fmt.Errorf(
+							"formatter field with source '%s' in preset '%s' of model '%s' must have explicit alias",
+							f.Source, presetName, modelName,
+						)
+					}
+				}
+				if (f.Alias == "") {f.Alias = f.Source}
+				fieldName := f.Alias
 				// Проверка preset-полей
 				if f.Type == "preset" {
 					// 2.1 Должно быть указано nested_preset

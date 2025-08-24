@@ -35,6 +35,7 @@ type ModelRelation struct {
 // DataPreset описывает структуру пресета в конфигурации
 type DataPreset struct {	
 	Name string `yaml:"-"`
+	Extends string     `yaml:"extends" json:"extends"`
 	Fields []Field `yaml:"fields"` // fields in this preset
 }
 // Preset описывает структуру поля пресета для SQL-запросов

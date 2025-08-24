@@ -26,10 +26,11 @@ var allowedRelationKeys = map[string]bool{
 }
 
 var allowedPresetKeys = map[string]bool{
+	"extends": true,
 	"fields": true,
 }
 
-var allowedFieldKeys = map[string]bool{
+var allowedFieldKeys = map[string]bool{	
 	"source":        true,
 	"type":          true,
 	"alias":         true,	
