@@ -186,12 +186,42 @@ func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, 
 	}
 }
 
-// applyFormatter уже был ранее, оставляю как есть
-// шаблон: "{naming.surname} {naming.name}[0] {naming.patrname}[0..1]"
-var reToken = regexp.MustCompile(`\{([a-zA-Z0-9_\.]+)\}(?:\[(\d+)(?:\.\.(\d+))?\])?`)
 
+var reToken = regexp.MustCompile(`\{([a-zA-Z0-9_\.]+)\}(?:\[(\d+)(?:\.\.(\d+))?\])?`)
+// {? left op right ? then : else}
+var reTernary = regexp.MustCompile(`\{\?\s*([^?]+?)\s*\?\s*([^:]*?)\s*:\s*([^}]*)\}`)
+
+// applyFormatter применяет тернарники, затем обычные токены
 func applyFormatter(fmtStr string, row map[string]any) string {
-    return reToken.ReplaceAllStringFunc(fmtStr, func(tok string) string {
+    // 1) Сначала — тернарные выражения. Делаем несколько проходов, пока что-то меняется (на случай каскадов).
+    prev := ""
+    out := fmtStr
+    for out != prev {
+        prev = out
+        out = reTernary.ReplaceAllStringFunc(out, func(tok string) string {
+            m := reTernary.FindStringSubmatch(tok)
+            if len(m) != 4 {
+                return "" // не должно случиться, но на всякий
+            }
+            cond := strings.TrimSpace(m[1])
+            thenStr := m[2]
+            elseStr := m[3]
+
+            ok, err := evalCondition(cond, row)
+            if err != nil {
+                // В случае ошибки парсинга условия — считаем условие ложным (или можно вернуть пусто)
+                // Чтобы не скрывать проблемы, можно логнуть err
+                return unquoteIfQuoted(elseStr)
+            }
+            if ok {
+                return unquoteIfQuoted(thenStr)
+            }
+            return unquoteIfQuoted(elseStr)
+        })
+    }
+		
+		// 2) Затем — обычные токены с индексами/срезами
+    return reToken.ReplaceAllStringFunc(out, func(tok string) string {
         m := reToken.FindStringSubmatch(tok)
         if len(m) == 0 {
             return ""
@@ -200,10 +230,9 @@ func applyFormatter(fmtStr string, row map[string]any) string {
         iStr := m[2]
         jStr := m[3]
 
-        // 1) Пытаемся достать как есть (прямой ключ)
+        // Прямой ключ → иначе по точкам
         val, ok := row[path]
         if !ok {
-            // 2) Если нет — идём по точкам
             val = getNested(row, path)
         }
         if val == nil {
@@ -237,6 +266,17 @@ func applyFormatter(fmtStr string, row map[string]any) string {
         return string(runes[i:j])
     })
 }
+// снимет только внешние одинаковые кавычки '...' или "..."
+		func unquoteIfQuoted(s string) string {
+    	s = strings.TrimSpace(s)
+    	if len(s) >= 2 {
+        if (s[0] == '"'  && s[len(s)-1] == '"') ||
+           (s[0] == '\'' && s[len(s)-1] == '\'') {
+            return s[1 : len(s)-1]
+        }
+    }
+    return s
+}
 
 func getNested(m map[string]any, path string) any {
     parts := strings.Split(path, ".")
@@ -250,6 +290,162 @@ func getNested(m map[string]any, path string) any {
     }
     return cur
 }
+
+func evalCondition(cond string, row map[string]any) (bool, error) {
+    cond = strings.TrimSpace(cond)
+    if cond == "" {
+        return false, fmt.Errorf("empty condition")
+    }
+
+    // 0) если cond не содержит операторов, значит это просто поле/путь
+    opRe := regexp.MustCompile(`\s*(==|=|!=|>=|<=|>|<)\s*`)
+    if !opRe.MatchString(cond) {
+        val, ok := row[cond]
+        if !ok {
+            val = getNested(row, cond)
+        }
+        return isTruthy(val), nil
+    }
+
+    // 1) обычный парсинг "<left> <op> <right>"
+    parts := opRe.Split(cond, 2)
+    ops := opRe.FindStringSubmatch(cond)
+    if len(parts) != 2 || len(ops) == 0 {
+        return false, fmt.Errorf("invalid condition: %q", cond)
+    }
+    left := strings.TrimSpace(parts[0])
+    right := strings.TrimSpace(parts[1])
+    op := ops[1]
+    if op == "=" {
+        op = "=="
+    }
+
+    lv, ok := row[left]
+    if !ok {
+        lv = getNested(row, left)
+    }
+    rv, err := parseLiteral(right)
+    if err != nil {
+        return false, err
+    }
+
+    return compareValues(lv, op, rv), nil
+}
+
+func isTruthy(v any) bool {
+    switch x := v.(type) {
+    case nil:
+        return false
+    case bool:
+        return x
+    case string:
+        return x != ""
+    case int, int32, int64, float32, float64:
+        n, ok := toNumber(x)
+        return ok && n != 0
+    default:
+        return true // любое другое значение считаем truthy
+    }
+}
+
+
+
+func parseLiteral(s string) (any, error) {
+    s = strings.TrimSpace(s)
+    if s == "null" {
+        return nil, nil
+    }
+    if s == "true" {
+        return true, nil
+    }
+    if s == "false" {
+        return false, nil
+    }
+    // строка в кавычках
+    if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) || (strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
+        unq := s[1 : len(s)-1]
+        return unq, nil
+    }
+    // попробовать как число
+    if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+        return float64(i), nil
+    }
+    if f, err := strconv.ParseFloat(s, 64); err == nil {
+        return f, nil
+    }
+    // голое слово — трактуем как строку
+    return s, nil
+}
+
+func toNumber(v any) (float64, bool) {
+    switch x := v.(type) {
+    case int: return float64(x), true
+    case int32: return float64(x), true
+    case int64: return float64(x), true
+    case float32: return float64(x), true
+    case float64: return x, true
+    case string:
+        if f, err := strconv.ParseFloat(x, 64); err == nil {
+            return f, true
+        }
+        return 0, false
+    default:
+        return 0, false
+    }
+}
+
+func toString(v any) string {
+    switch x := v.(type) {
+    case nil:
+        return ""
+    case string:
+        return x
+    default:
+        return fmt.Sprintf("%v", x)
+    }
+}
+
+func compareValues(lv any, op string, rv any) bool {
+    // если оба приводимы к числу — числовое сравнение
+    if ln, lok := toNumber(lv); lok {
+        if rn, rok := toNumber(rv); rok {
+            switch op {
+            case "==": return ln == rn
+            case "!=": return ln != rn
+            case ">":  return ln > rn
+            case ">=": return ln >= rn
+            case "<":  return ln < rn
+            case "<=": return ln <= rn
+            }
+            return false
+        }
+    }
+
+    // булево
+    if lb, lok := lv.(bool); lok {
+        if rb, rok := rv.(bool); rok {
+            switch op {
+            case "==": return lb == rb
+            case "!=": return lb != rb
+            default:   return false
+            }
+        }
+    }
+
+    // строковое сравнение (лексикографическое для >,<)
+    ls := toString(lv)
+    rs := toString(rv)
+    switch op {
+    case "==": return ls == rs
+    case "!=": return ls != rs
+    case ">":  return ls > rs
+    case ">=": return ls >= rs
+    case "<":  return ls < rs
+    case "<=": return ls <= rs
+    }
+    return false
+}
+
 func stripPresetPrefixes(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) {
     for _, f := range p.Fields {
         if f.Type != "preset" {
@@ -295,4 +491,8 @@ func stripPresetPrefixes(m *model.Model, p *model.DataPreset, items []map[string
             }
         }
     }
+}
+
+func ApplyFormatterTestShim(fmtStr string, row map[string]any) string {
+	return applyFormatter(fmtStr, row)
 }
