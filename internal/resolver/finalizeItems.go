@@ -188,94 +188,188 @@ func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, 
 
 
 var reToken = regexp.MustCompile(`\{([a-zA-Z0-9_\.]+)\}(?:\[(\d+)(?:\.\.(\d+))?\])?`)
-// {? left op right ? then : else}
-var reTernary = regexp.MustCompile(`\{\?\s*([^?]+?)\s*\?\s*([^:]*?)\s*:\s*([^}]*)\}`)
+
 
 // applyFormatter применяет тернарники, затем обычные токены
 func applyFormatter(fmtStr string, row map[string]any) string {
-    // 1) Сначала — тернарные выражения. Делаем несколько проходов, пока что-то меняется (на случай каскадов).
-    prev := ""
-    out := fmtStr
-    for out != prev {
-        prev = out
-        out = reTernary.ReplaceAllStringFunc(out, func(tok string) string {
-            m := reTernary.FindStringSubmatch(tok)
-            if len(m) != 4 {
-                return "" // не должно случиться, но на всякий
-            }
-            cond := strings.TrimSpace(m[1])
-            thenStr := m[2]
-            elseStr := m[3]
+	// 1) Тернарники парсим state machine-ом (учитываем кавычки и вложенные { } )
+	out := replaceTernaries(fmtStr, row)
 
-            ok, err := evalCondition(cond, row)
-            if err != nil {
-                // В случае ошибки парсинга условия — считаем условие ложным (или можно вернуть пусто)
-                // Чтобы не скрывать проблемы, можно логнуть err
-                return unquoteIfQuoted(elseStr)
-            }
-            if ok {
-                return unquoteIfQuoted(thenStr)
-            }
-            return unquoteIfQuoted(elseStr)
-        })
-    }
-		
-		// 2) Затем — обычные токены с индексами/срезами
-    return reToken.ReplaceAllStringFunc(out, func(tok string) string {
-        m := reToken.FindStringSubmatch(tok)
-        if len(m) == 0 {
-            return ""
-        }
-        path := m[1]
-        iStr := m[2]
-        jStr := m[3]
+	// 2) Затем — обычные токены {path}[i] / [i..j]
+	return reToken.ReplaceAllStringFunc(out, func(tok string) string {
+		m := reToken.FindStringSubmatch(tok)
+		if len(m) == 0 {
+			return ""
+		}
+		path := m[1]
+		iStr := m[2]
+		jStr := m[3]
 
-        // Прямой ключ → иначе по точкам
-        val, ok := row[path]
-        if !ok {
-            val = getNested(row, path)
-        }
-        if val == nil {
-            return ""
-        }
+		val, ok := row[path]
+		if !ok {
+			val = getNested(row, path)
+		}
+		if val == nil {
+			return ""
+		}
+		s := fmt.Sprintf("%v", val)
 
-        s := fmt.Sprintf("%v", val)
-
-        if iStr == "" {
-            return s
-        }
-        i, _ := strconv.Atoi(iStr)
-        if jStr == "" {
-            runes := []rune(s)
-            if i >= 0 && i < len(runes) {
-                return string(runes[i])
-            }
-            return ""
-        }
-        j, _ := strconv.Atoi(jStr)
-        runes := []rune(s)
-        if i < 0 {
-            i = 0
-        }
-        if j > len(runes) {
-            j = len(runes)
-        }
-        if i >= j {
-            return ""
-        }
-        return string(runes[i:j])
-    })
+		if iStr == "" {
+			return s
+		}
+		i, _ := strconv.Atoi(iStr)
+		if jStr == "" {
+			runes := []rune(s)
+			if i >= 0 && i < len(runes) {
+				return string(runes[i])
+			}
+			return ""
+		}
+		j, _ := strconv.Atoi(jStr)
+		runes := []rune(s)
+		if i < 0 {
+			i = 0
+		}
+		if j > len(runes) {
+			j = len(runes)
+		}
+		if i >= j {
+			return ""
+		}
+		return string(runes[i:j])
+	})
 }
+
+// Разбирает и заменяет все блоки вида `{? cond ? then : else}`.
+// Учитывает кавычки и вложенные { } внутри веток и условия.
+func replaceTernaries(s string, row map[string]any) string {
+	var out strings.Builder
+	n := len(s)
+	for i := 0; i < n; {
+		// ищем старт `{?`
+		if i+1 < n && s[i] == '{' && s[i+1] == '?' {
+			// пропускаем `{?`
+			i += 2
+			depth := 1 // уже открыли одну '{'
+			var inQuote byte
+			start := i
+			for i < n && depth > 0 {
+				c := s[i]
+				if inQuote != 0 {
+					// выходим из кавычек при той же кавычке, если не экранирована
+					if c == inQuote && (i == 0 || s[i-1] != '\\') {
+						inQuote = 0
+					}
+				} else {
+					switch c {
+					case '"', '\'':
+						inQuote = c
+					case '{':
+						depth++
+					case '}':
+						depth--
+						if depth == 0 {
+							// захватили весь блок тернарника
+							block := s[start : i] // без финальной '}'
+							repl := evalTernaryBlock(block, row)
+							out.WriteString(repl)
+							i++ // съедаем '}'
+							goto cont // продолжить внешний цикл
+						}
+					}
+				}
+				i++
+			}
+			// если не закрыли — считаем это текстом как есть
+			out.WriteString("{?")
+			out.WriteString(s[start:])
+			break
+		}
+		// обычный символ
+		out.WriteByte(s[i])
+		i++
+	cont:
+	}
+	return out.String()
+}
+
+// Разобрать внутренности `{? ... }` на cond ? then : else, учитывая кавычки/{}.
+func evalTernaryBlock(block string, row map[string]any) string {
+	// Найти разделители: первый '?' и первый ':' на верхнем уровне.
+	var inQuote byte
+	depth := 0
+	qPos, cPos := -1, -1
+	for i := 0; i < len(block); i++ {
+		c := block[i]
+		if inQuote != 0 {
+			if c == inQuote && (i == 0 || block[i-1] != '\\') {
+				inQuote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			inQuote = c
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case '?':
+			if depth == 0 && qPos == -1 {
+				qPos = i
+			}
+		case ':':
+			if depth == 0 && qPos != -1 {
+				cPos = i
+				i = len(block) // нашли оба — выходим
+			}
+		}
+	}
+	if qPos == -1 || cPos == -1 || qPos > cPos {
+		// нераспознанный тернарник — вернём как есть
+		return "{?" + block + "}"
+	}
+
+	cond := strings.TrimSpace(block[:qPos])
+	thenStr := strings.TrimSpace(block[qPos+1 : cPos])
+	elseStr := strings.TrimSpace(block[cPos+1:])
+
+	ok, err := evalCondition(cond, row)
+
+	chosen := elseStr
+	if err == nil && ok {
+		chosen = thenStr
+	}
+
+	// null → пусто
+	if isNullLiteral(chosen) {
+		return ""
+	}
+
+	// снимаем кавычки
+	chosen = unquoteIfQuoted(chosen)
+
+	// ВАЖНО: прогоняем результат снова через applyFormatter,
+	// чтобы обработать вложенные токены/тернарники
+	return applyFormatter(chosen, row)
+}
+
+
 // снимет только внешние одинаковые кавычки '...' или "..."
-		func unquoteIfQuoted(s string) string {
-    	s = strings.TrimSpace(s)
-    	if len(s) >= 2 {
-        if (s[0] == '"'  && s[len(s)-1] == '"') ||
+func unquoteIfQuoted(s string) string {
+    s = strings.TrimSpace(s)
+    if len(s) >= 2 {
+    if (s[0] == '"'  && s[len(s)-1] == '"') ||
            (s[0] == '\'' && s[len(s)-1] == '\'') {
             return s[1 : len(s)-1]
         }
     }
     return s
+}
+func isNullLiteral(s string) bool {
+	return strings.EqualFold(strings.TrimSpace(s), "null")
 }
 
 func getNested(m map[string]any, path string) any {
@@ -299,17 +393,16 @@ func evalCondition(cond string, row map[string]any) (bool, error) {
 
     // 0) если cond не содержит операторов, значит это просто поле/путь
     opRe := regexp.MustCompile(`\s*(==|=|!=|>=|<=|>|<)\s*`)
-    if !opRe.MatchString(cond) {
+    if !opRe.MatchString(cond) {        
         val, ok := row[cond]
         if !ok {
             val = getNested(row, cond)
         }
         return isTruthy(val), nil
-    }
-
+    }    
     // 1) обычный парсинг "<left> <op> <right>"
-    parts := opRe.Split(cond, 2)
-    ops := opRe.FindStringSubmatch(cond)
+    parts := opRe.Split(cond, 2)    
+    ops := opRe.FindStringSubmatch(cond)    
     if len(parts) != 2 || len(ops) == 0 {
         return false, fmt.Errorf("invalid condition: %q", cond)
     }
@@ -318,17 +411,15 @@ func evalCondition(cond string, row map[string]any) (bool, error) {
     op := ops[1]
     if op == "=" {
         op = "=="
-    }
-
+    }    
     lv, ok := row[left]
     if !ok {
         lv = getNested(row, left)
-    }
-    rv, err := parseLiteral(right)
+    }    
+    rv, err := parseLiteral(right)    
     if err != nil {
         return false, err
-    }
-
+    }    
     return compareValues(lv, op, rv), nil
 }
 
@@ -361,11 +452,12 @@ func parseLiteral(s string) (any, error) {
     if s == "false" {
         return false, nil
     }
-    // строка в кавычках
-    if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) || (strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
-        unq := s[1 : len(s)-1]
-        return unq, nil
-    }
+     
+    // Строка в кавычках: "..." или '...'
+		if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') ||
+			(s[0] == '\'' && s[len(s)-1] == '\'')) {
+			return s[1 : len(s)-1], nil
+		}
     // попробовать как число
     if i, err := strconv.ParseInt(s, 10, 64); err == nil {
         return float64(i), nil
@@ -419,8 +511,7 @@ func compareValues(lv any, op string, rv any) bool {
             }
             return false
         }
-    }
-
+    }    
     // булево
     if lb, lok := lv.(bool); lok {
         if rb, rok := rv.(bool); rok {
@@ -431,10 +522,10 @@ func compareValues(lv any, op string, rv any) bool {
             }
         }
     }
-
+    
     // строковое сравнение (лексикографическое для >,<)
     ls := toString(lv)
-    rs := toString(rv)
+    rs := toString(rv)    
     switch op {
     case "==": return ls == rs
     case "!=": return ls != rs
@@ -442,7 +533,8 @@ func compareValues(lv any, op string, rv any) bool {
     case ">=": return ls >= rs
     case "<":  return ls < rs
     case "<=": return ls <= rs
-    }
+    }    
+    
     return false
 }
 
