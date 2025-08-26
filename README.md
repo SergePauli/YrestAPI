@@ -69,10 +69,12 @@ go run main.go
   **where** — фильтры для конечной таблицы связи.
   **through_where** — фильтры для промежуточной таблицы при through-связях.
   ---
-  ## Formatter — post-processing of preset fields
+## 2. Formatter — post-processing of preset fields
 
 Formatters transform or combine field values **after** the SQL query and after merging related data.  
 They are useful when you want to **collapse a nested preset into a string** or build a computed text field.
+Formatters provide a mini-language for building computed fields inside presets.  
+They allow you to combine values from multiple fields, apply character slicing, and add conditional logic.
 
 ---
 
@@ -147,3 +149,68 @@ presets:
   }
 ]
 ```
+#### 3.Ternary operators
+**Syntax:**
+```yaml
+  {? <condition> ? <then> : <else>}
+```
+**Condition forms:**
+
+-  Full form: <field> <op> <value>
+-  Supported operators: ==, =, !=, >, >=, <, <=.
+
+-  Shorthand form: just <field> → evaluates truthy/falsy.
+
+-  Supported literals:
+
+    - Numbers: **10**, **3.14**
+
+    - Booleans: **true**, **false**
+
+    - Null: **null**
+
+    - Strings: **"ok"**, **'fail'**
+
+**Examples:**
+  ```yaml
+  - source: `{? used ? "+" : "-"}`
+  type: formatter
+  alias: used_flag
+# true  → "+"
+# false → "-"
+
+- source: `{? age >= 18 ? "adult" : "minor"}`
+  type: formatter
+  alias: age_group
+# age=20 → "adult"
+# age=15 → "minor"
+
+- source: `{? status == "ok" ? "✔" : "✖"}`
+  type: formatter
+  alias: status_icon
+```
+### Nested ternaries
+  Ternary expressions can be nested:
+  ```yaml
+  - source: `{? used ? "{? age >= 18 ? "adult" : "minor"}" : "-"}`
+  type: formatter
+  alias: nested_example
+# used=false        → "-"
+# used=true, age=20 → "adult"
+# used=true, age=15 → "minor"
+```
+### Combining with substitutions
+  Formatters can combine conditional logic and substitutions:
+  ```yaml
+  - source: '{? used ? "+" : "-"} {naming.surname} {naming.name}[0].'
+  type: formatter
+  alias: short_name
+# used=true  → "+ Ivanov I."
+# used=false → "- Ivanov I."
+```
+### 📌 Notes:
+
+  - Fields with type: formatter must always define an alias.
+
+  - Formatter fields are not included in SQL queries. They are resolved only at the     post-processing stage.
+---  
