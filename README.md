@@ -214,3 +214,35 @@ presets:
 
   - Formatter fields are not included in SQL queries. They are resolved only at the     post-processing stage.
 ---  
+### Multiple preset inheritance
+
+You can inherit from multiple presets using a comma-separated list:
+
+```yaml
+presets:
+  base:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string
+        alias: name
+
+  head:
+    fields:
+      - source: full_name
+        type: string
+        alias: name
+      - source: head_only
+        type: string
+        alias: head_only
+
+  item:
+    extends: base, head
+    fields:
+      - source: okopf
+        type: int
+        alias: okopf
+      - source: item_only
+        type: string
+        alias: item_only

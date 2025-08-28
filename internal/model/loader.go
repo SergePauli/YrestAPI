@@ -56,6 +56,11 @@ func LoadModelsFromDir(dir string) error {
 }
 
 
+// resolvePresetInheritance поддерживает множественное наследование:
+//   extends: "base, head"
+// Родители применяются слева направо: поля первого родителя добавляются первыми,
+// последующие родители переопределяют совпадающие поля, но НЕ меняют их позицию.
+// Затем применяются локальные поля пресета — тоже с переопределением и сохранением позиции.
 func resolvePresetInheritance(m *Model) error {
 	if m == nil || len(m.Presets) == 0 {
 		return nil
@@ -64,11 +69,54 @@ func resolvePresetInheritance(m *Model) error {
 	cache := make(map[string][]Field)
 	stack := make(map[string]bool) // для детекции циклов
 
-	var keyOf = func(f Field) string {
+	// Ключ поля для сравнения — alias, иначе source
+	keyOf := func(f Field) string {
 		if strings.TrimSpace(f.Alias) != "" {
 			return f.Alias
 		}
 		return f.Source
+	}
+
+	// Парсим список родителей из строки вида "base, head"
+	parseParents := func(s string) []string {
+		if s == "" {
+			return nil
+		}
+		parts := strings.Split(s, ",")
+		out := make([]string, 0, len(parts))
+		seen := make(map[string]struct{}, len(parts))
+		for _, part := range parts {
+			p := strings.TrimSpace(part)
+			if p == "" {
+				continue
+			}
+			// уберём дубли в extends
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+		return out
+	}
+
+	// Слияние src в dst c переопределением по key, но без смены позиции.
+	mergeFields := func(dst []Field, src []Field) []Field {
+		index := make(map[string]int, len(dst))
+		for i := range dst {
+			index[keyOf(dst[i])] = i
+		}
+		for _, f := range src {
+			k := keyOf(f)
+			if pos, ok := index[k]; ok {
+				// переопределяем значение, позиция сохраняется
+				dst[pos] = f
+			} else {
+				index[k] = len(dst)
+				dst = append(dst, f)
+			}
+		}
+		return dst
 	}
 
 	var dfs func(string) ([]Field, error)
@@ -87,33 +135,21 @@ func resolvePresetInheritance(m *Model) error {
 		stack[name] = true
 		var result []Field
 
-		// 1) Наследуемся
-		if parent := strings.TrimSpace(p.Extends); parent != "" {
-			parentFields, err := dfs(parent)
-			if err != nil {
-				return nil, err
+		// 1) Наследуемся от каждого родителя слева направо
+		if parents := parseParents(strings.TrimSpace(p.Extends)); len(parents) > 0 {
+			for _, parent := range parents {
+				parentFields, err := dfs(parent)
+				if err != nil {
+					return nil, err
+				}
+				// ВАЖНО: копируем parentFields, чтобы не трогать кэш
+				result = mergeFields(result, append([]Field(nil), parentFields...))
 			}
-			// Копируем, чтобы не портить кэш родителя
-			result = append(result, append([]Field(nil), parentFields...)...)
 		}
 
-		// 2) Переопределяем/добавляем
-		for _, f := range p.Fields {
-			k := keyOf(f)
-			idx := -1
-			for i := range result {
-				if keyOf(result[i]) == k {
-					idx = i
-					break
-				}
-			}
-			if idx >= 0 {
-				// замещаем, позицию сохраняем
-				result[idx] = f
-			} else {
-				// новое поле — в конец
-				result = append(result, f)
-			}
+		// 2) Применяем собственные поля (переопределение + добавление)
+		if len(p.Fields) > 0 {
+			result = mergeFields(result, p.Fields)
 		}
 
 		stack[name] = false
@@ -131,5 +167,6 @@ func resolvePresetInheritance(m *Model) error {
 	}
 	return nil
 }
+
 
 
