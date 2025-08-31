@@ -41,16 +41,16 @@ func (m *Model) BuildIndexQuery(
     parts := strings.SplitN(s, " ", 2)
     sortFields[i] = parts[0]
 	}	
-	presetFieldPaths := m.ScanPresetFields(preset, "")
-	
+	presetFieldPaths := m.ScanPresetFields(preset, "")		
 	joinSpecs, err := m.DetectJoins(filterKeys, sortFields, presetFieldPaths)
+		
 	if err != nil {
 		return sb, err
 	}
 	
 	hasDistinct := false
 	for i := 0; i < len(joinSpecs); i++ {
-    join := joinSpecs[i]  
+    join := joinSpecs[i]  		
 		onClause := join.On
     if join.Where != "" {
         onClause = fmt.Sprintf("(%s) AND (%s)", join.On, join.Where)

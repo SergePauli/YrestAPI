@@ -88,16 +88,16 @@ func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset) ([]map[string]an
             if b, ok := v.([]byte); ok {
                 v = string(b)
             }
-        }
+				}						
         row[expr] = v
-        i++
+        //i++
     }
+		row = FoldFlatRowByPreset(row) // сворачиваем вложенные объекты
 		out = append(out, row)		
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-
+	}	
 	return out, nil
 }
 
@@ -110,3 +110,62 @@ func splitAliasCol(expr string) (alias, col string) {
 	}
 	return expr[:idx], expr[idx+1:]
 }
+
+// FoldFlatRowByPreset сворачивает плоский row вида
+// {"address.id": 1, "address.value": "...", "address.area.id": 660000}
+// в {"address": {"id":1, "value":"...", "area":{"id":660000}}}
+// Рекурсирует, пока в ключах не останется '.'.
+func FoldFlatRowByPreset(flat map[string]any) map[string]any {
+	res := make(map[string]any, len(flat))
+
+	// 1) сначала переносим все "листовые" ключи без точки
+	for k, v := range flat {
+		if strings.IndexByte(k, '.') < 0 {
+			res[k] = v
+		}
+	}
+
+	// 2) группируем ключи с точкой по первому сегменту
+	buckets := make(map[string]map[string]any) // head -> subFlat (tail->value)
+	for k, v := range flat {
+		if i := strings.IndexByte(k, '.'); i >= 0 {
+			head := k[:i]
+			tail := k[i+1:]
+			if tail == "" {
+				// защита от "address." — считаем это листом под именем head
+				res[head] = v
+				continue
+			}
+			if _, ok := buckets[head]; !ok {
+				buckets[head] = make(map[string]any)
+			}
+			buckets[head][tail] = v
+		}
+	}
+
+	// 3) рекурсивно сворачиваем каждую группу
+	for head, subFlat := range buckets {
+		sub := FoldFlatRowByPreset(subFlat)
+
+		// Конфликт: если в res уже есть leaf "head" (не map), отдаём приоритет объекту.
+		// При желании можно сохранить leaf в sub["_"].
+		if exist, ok := res[head]; ok {
+			if _, isMap := exist.(map[string]any); !isMap {
+				// приоритет вложенному объекту
+			}
+		}
+		res[head] = sub
+	}
+
+	return res
+}
+
+// Опционально: свёртка для слайса строк
+func FoldFlatRowsByPreset(rows []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(rows))
+	for i, r := range rows {
+		out[i] = FoldFlatRowByPreset(r)
+	}
+	return out
+}
+

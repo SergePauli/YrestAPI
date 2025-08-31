@@ -43,7 +43,12 @@ func (m *Model) ScanPresetFields(preset *DataPreset, prefix string) []string {
 		if prefix == "" {
 			path = relKey +"."
 		} else {
-			path = prefix + "." + relKey
+			// если prefix уже оканчивается на точку – не добавляем ещё одну
+    	if strings.HasSuffix(prefix, ".") {
+        path = prefix + relKey+"."
+    	} else {
+        path = prefix + "." + relKey
+    	}
 		}
 		appendOnce(path)
 
