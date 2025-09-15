@@ -3,6 +3,8 @@ package resolver
 import (
 	"YrestAPI/internal/model"
 	"fmt"
+	"log"
+	"maps"
 
 	"regexp"
 	"strconv"
@@ -61,6 +63,32 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 }
 
 func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) error {
+	 // маленький локальный хелпер: достать/создать под-объект по prefix
+    	getCtx := func(root map[string]any, pfx string) map[string]any {
+        if pfx == "" {
+            return root
+        }				
+        cur := root				
+        for _, seg := range strings.Split(pfx, ".") {						
+            seg = strings.TrimSpace(seg)
+            if seg == "" {
+                continue
+            } 
+            if v, ok := cur[seg]; ok {
+                if m, ok := v.(map[string]any); ok {
+                    cur = m
+                    continue
+                }
+            }
+            // создаём, если нет или тип не map
+            m := map[string]any{}
+            cur[seg] = m
+            cur = m
+        }
+				
+        return cur
+			}
+	var head *formatterNode		
 	for _, f := range p.Fields {
 		switch f.Type {
 
@@ -75,65 +103,159 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 
 			// nested preset
 			var nested *model.DataPreset
-			if f.NestedPreset != "" {
+			nested = f.GetPresetRef()
+			
+			if nested == nil && f.NestedPreset != "" {
 				nested = nestedModel.Presets[f.NestedPreset]
-			}
+			} 
 			if nested == nil {
+				log.Printf("applyAllFormatters: warning: preset %q not found in model %q for field %q", f.NestedPreset, relKey, f.Alias)
 				continue
 			}
-
+			
 			// Рекурсивно обрабатываем вложенные форматтеры
-			if err := applyAllFormatters(nestedModel, nested, items, prefixFor(prefix, relKey)); err != nil {
+			nextPrefix := prefixFor(prefix, relKey)
+			if err := applyAllFormatters(nestedModel, nested, items, nextPrefix); err != nil {
 				return err
 			}
-
 			// Применяем formatter к belongs_to полю
-			if strings.TrimSpace(f.Formatter) != "" {
-				for i := range items {
-					if sub, ok := items[i][f.Alias].(map[string]any); ok {
-						items[i][f.Alias] = applyFormatter(f.Formatter, sub)
-					} else {
-						items[i][f.Alias] = ""
-					}
+			if strings.TrimSpace(f.Formatter) != "" {	
+				pf := &f
+				node := &formatterNode{
+					Alias: f.Alias, // alias гарантирован валидатором
+					F: pf,
 				}
+				head = insertByDeps(head, node)
 			}
-
 		case "formatter":
-			// template находится в f.Source
-			template := f.Source
-			target := f.Alias
-			if target == "" {
-				target = "value"
+			pf := &f
+			node := &formatterNode{
+					Alias: f.Alias, // alias гарантирован валидатором
+					F: pf,
 			}
-			for i := range items {
-				items[i][target] = applyFormatter(template, items[i])
-			}
-
+			head = insertByDeps(head, node)
 		default:
-			// Старый стиль formatter как отдельное поле
-			if strings.TrimSpace(f.Formatter) != "" {
-				target := f.Alias
-				if target == "" {
-					if prefix == "" {
-						target = f.Source
-					} else {
-						target = prefix + "." + f.Source
-					}
-				}
-				for i := range items {
-					items[i][target] = applyFormatter(f.Formatter, items[i])
-				}
-			}
+			// прочие типы полей — пропускаем
 		}
 	}
+	
+	// теперь обойти узлы в порядке зависимостей
+	for node := head; node != nil; node = node.Next {
+		f := node.F
+		switch f.Type {
+
+		case "formatter":
+			// шаблон в f.Source, писать в f.Alias на уровне prefix			
+			template := f.Source
+    	target   := f.Alias // alias обязателен
+    	// alias -> unwrapKey для preset-полей с through (через геттеры)
+    	unwrapByAlias := map[string]string{}
+    	for _, pf := range p.Fields {
+        rel, ok := m.Relations[pf.Source]
+				if !ok || rel == nil || rel.Through == "" {						
+						continue
+				} else {
+        	through := rel.GetThroughRef()
+        	final   := rel.GetModelRef()
+        	// находим связь из through к final (обычно belongs_to "contact")				
+        	for k, r2 := range through.Relations {
+            if  r2.GetModelRef() == final {
+                unwrapByAlias[pf.Alias] = k // напр. "email" -> "contact"
+                break
+            }
+        	}
+				}	
+    	}
+    	for i := range items {
+        // копия ВСЕГО item — чтобы {name} и прочие обычные поля были доступны
+        fctx := make(map[string]any, len(items[i]))
+				maps.Copy(fctx, items[i])
+        if len(unwrapByAlias) > 0 {					
+					 // разворачиваем through-алиасы: fctx[email] = fctx[email][contact]
+					 for alias, inner := range unwrapByAlias {
+            if outer, ok := fctx[alias].(map[string]any); ok {
+                if innerMap, ok := outer[inner].(map[string]any); ok {
+                    fctx[alias] = innerMap
+                }
+            }
+        	}
+				} else {
+					 // без through — просто берем контекст текущего пресета				 
+					 fctx = getCtx(fctx, prefix)					 
+				}	 				
+        // считаем шаблон по fctx и записываем прямо в alias этого formatter-поля
+        items[i][target] = applyFormatter(template, fctx)
+			}	
+			case "preset":
+				// форматтер на контейнер (belongs_to / through)
+				relKey := f.Source
+				rel, ok:= m.Relations[relKey]			
+				alias := f.Alias
+				// определить unwrapKey для through (например "contact")
+    		unwrapKey := ""
+    		if ok && rel.Through != "" {
+        	for k, r2 := range rel.GetThroughRef().Relations {
+            if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == rel.GetModelRef() {
+                unwrapKey = k
+                break
+            }
+        	}
+    		}			  		
+				for i := range items {
+					if unwrapKey != "" {
+						ctx := getCtx(items[i], prefix)
+            // through: форматируем по конечной модели (alias -> unwrapKey)
+            if sub, ok := ctx[alias].(map[string]any); ok {
+                if inner, ok := sub[unwrapKey].(map[string]any); ok {
+                    ctx[alias] = applyFormatter(f.Formatter, inner)
+                } 
+            } else {
+                ctx[alias] = ""
+            }
+        	} else {
+            // обычный случай: форматируем по текущему контексту ветки
+						nextPrefix := prefixFor(prefix, f.Source)
+        		ctx := getCtx(items[i], nextPrefix) // контекст текущей ветки пресета
+            items[i][alias] = applyFormatter(f.Formatter, ctx)						
+        	}
+				}	
+		}		
+	}	
 	return nil
+	
 }
 
-func prefixFor(base, relKey string) string {
+func prefixFor(base string, relKey string) string {
 	if base == "" {
 		return relKey
 	}
 	return base + "." + relKey
+}
+type formatterNode struct {
+	F      *model.Field
+	Alias  string
+	Next   *formatterNode
+}
+func insertByDeps(head *formatterNode, node *formatterNode) *formatterNode {
+	if head == nil {
+		return node
+	}
+	var lastMatch *formatterNode
+	for cur := head; cur != nil; cur = cur.Next {
+		if (node.F.Source != "" && strings.Contains(node.F.Source, cur.Alias)) ||
+		   (node.F.Formatter != "" && strings.Contains(node.F.Formatter, cur.Alias)) {
+			lastMatch = cur
+		}
+	}
+	if lastMatch == nil {
+		// вставляем в начало
+		node.Next = head
+		return node
+	}
+	// вставляем после последнего совпадения
+	node.Next = lastMatch.Next
+	lastMatch.Next = node
+	return head
 }
 
 // собирает списки internal-маркеров:

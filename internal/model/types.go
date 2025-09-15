@@ -72,22 +72,28 @@ func (m *Model) GetPrimaryKeys() []string {
 }
 
 // GetModelRef возвращает ссылку на модель, если она уже загружена,
-func (m *ModelRelation) GetModelRef() *Model {
-	if m._ModelRef == nil {
-		return Registry[m.Model]
-	}
+func (m *ModelRelation) GetModelRef() *Model {	
 	return m._ModelRef
+}
+// SetModelRef устанавливает ссылку на модель (вызывается из Registry после загрузки всех моделей)
+func (m *ModelRelation) SetModelRef(model *Model) {
+	m._ModelRef = model
 }
 
 // GetThroughRef возвращает ссылку на промежуточную модель, если она задана
 // Если не задано, ищет в Registry по имени через "Through".
 func (m *ModelRelation) GetThroughRef() *Model {
-	if m._ThroughRef == nil {
-		return Registry[m.Through]
-	}
 	return m._ThroughRef
+}
+
+func (m *ModelRelation) SetThroughRef(model *Model) {
+	m._ThroughRef = model
 }
 
 func (f *Field) SetPresetRef( preset *DataPreset) {
 	f._PresetRef = preset
+}
+
+func (f *Field) GetPresetRef() (preset *DataPreset) {
+	return f._PresetRef 
 }

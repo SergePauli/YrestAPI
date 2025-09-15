@@ -46,6 +46,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 		// функция, восстанавливающая поля из aliasMap
     items, err := m.ScanFlatRows(rows, preset) 
+    //log.Printf("Resolver: main items: %+v", items)
     if err != nil { return nil, err }
     if len(items) == 0 { return items, nil }
 		
@@ -57,6 +58,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 				if err := finalizeItems(m, preset, items); err != nil {
 				return nil, fmt.Errorf("resolver: finalize: %w", err)
 			}
+            //log.Printf("Resolver: final items: %+v", items)
 			return items, nil
 		}
 
@@ -204,6 +206,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 			}
 		}	
 	}	
+    //log.Printf("Resolver: final items: %+v", items)
 	// 8) финализация formatter/computed уже ПОСЛЕ склейки
 	if err := finalizeItems(m, preset, items); err != nil {
 			return nil, fmt.Errorf("resolver: finalize: %w", err)
