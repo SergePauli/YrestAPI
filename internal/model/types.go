@@ -2,16 +2,14 @@ package model
 
 // Model описывает структуру модели в конфигурации
 type Model struct {
+	Name     string   `yaml:"-"`// logical name of the model
 	Table   string   `yaml:"table"`
 	Relations map[string]*ModelRelation  `yaml:"relations"`
 	Presets 	map[string]*DataPreset `yaml:"presets"`
 	PrimaryKeys []string                   `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
-	// Runtime only — карта алиасов, используемая в текущем запросе
-	_AliasMap *AliasMap `yaml:"-"` // <-- Несериализуемое поле
+	
 }
-func (m *Model) GetAliasMap() *AliasMap {
-	return m._AliasMap
-}
+
 // ModelRelation описывает связь между моделями в конфигурации
 type ModelRelation struct {
 	Type      string `yaml:"type"`       // has_one, has_many, belongs_to
@@ -23,13 +21,18 @@ type ModelRelation struct {
 	Where     string `yaml:"where"`      // SQL-условие (без WHERE)
 	ThroughWhere string `yaml:"through_where"` // SQL-условие для промежуточной модели (без WHERE)
 	Order     string `yaml:"order"`      // сортировка по умолчанию
-	InverseOf string `yaml:"inverse_of"` // для bidirectional связей
-	Dependent string `yaml:"dependent"`  // destroy, nullify
-	Autosave  bool   `yaml:"autosave"`
+	Reentrant	bool   `yaml:"reentrant"`  // разрешить рекурсивные связи
+	MaxDepth  int    `yaml:"max_depth"`  // максимальная глубина рекурсии
 
 	// для runtime (не сериализуется)
 	_ModelRef  *Model `yaml:"-"`
 	_ThroughRef *Model `yaml:"-"`	
+}
+// Карта алиасов: путь ↔ алиас.
+// Путь задаётся относительно корневой модели пресета (например: "contragent", "contragent.contracts").
+type AliasMap struct {
+	PathToAlias map[string]string
+	AliasToPath map[string]string
 }
 
 // DataPreset описывает структуру пресета в конфигурации
@@ -37,6 +40,9 @@ type DataPreset struct {
 	Name string `yaml:"-"`
 	Extends string     `yaml:"extends" json:"extends"`
 	Fields []Field `yaml:"fields"` // fields in this preset
+	// Предвычисленная карта алиасов, собранная ТОЛЬКО из полей этого пресета (NestedPreset-поля).
+	// Не включает пути из фильтров/сортировок; неизменяема после инициализации.
+	FieldsAliasMap *AliasMap `yaml:"-" json:"-"`
 }
 // Preset описывает структуру поля пресета для SQL-запросов
 type Field struct {
@@ -46,7 +52,8 @@ type Field struct {
 	Type         string   `yaml:"type"`          // "int", "string", "array", "bool"
 	NestedPreset string   `yaml:"preset"` // name of another preset
 	Internal bool     `yaml:"internal"`      // если true, то поле не будет включено в ответ
-	Localize     bool   `yaml:"localize"` // ← новый флаг
+	Localize bool   `yaml:"localize"` // если true, то поле будет локализовано
+	MaxDepth	int    `yaml:"max_depth"` // максимальная глубина рекурсии для циклических связей
 	// для runtime (не сериализуется)
 	_PresetRef *DataPreset `yaml:"-"`
 }

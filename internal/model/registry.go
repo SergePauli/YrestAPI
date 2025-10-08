@@ -18,6 +18,9 @@ func InitRegistry(dir string) error {
 	if err := ValidateAllPresets(); err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
+	if err := BuildPresetAliasMaps(); err != nil {
+		log.Fatalf("InitRegistry failed: %v", err)
+	}
 	return nil
 }
 

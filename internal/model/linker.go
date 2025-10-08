@@ -9,7 +9,7 @@ import (
 	"unicode"
 )
 
-// где-нибудь на уровне пакета (или один раз выше по коду)
+
 var formatterSrcRe = regexp.MustCompile(`\{[^}]+\}`)	
 func LinkModelRelations() error {
 	for modelName, model := range Registry {

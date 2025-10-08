@@ -7,7 +7,7 @@ import (
 )
 
 // Разрешённые ключи для объектов
-var allowedModelKeys = map[string]bool{
+var allowedModelKeys = map[string]bool{	
 	"table":     true,
 	"relations": true,
 	"presets":   true,
@@ -23,6 +23,8 @@ var allowedRelationKeys = map[string]bool{
 	"order":   true,
 	"through": true,
 	"through_where": true,
+	"reentrant": true,
+	"max_depth": true,
 }
 
 var allowedPresetKeys = map[string]bool{
@@ -37,7 +39,8 @@ var allowedFieldKeys = map[string]bool{
 	"preset": 			 true,
 	"internal":      true,
 	"formatter":    true,
-	"localize":        true,
+	"localize":      true,
+	"max_depth":    true,
 }
 
 // Разрешённые значения для type в полях

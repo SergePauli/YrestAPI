@@ -11,14 +11,15 @@ import (
 // filterFields, sortFields и presetFields — это поля, по которым нужно искать связи
 // Если пресеты не нужны, можно передать nil или пустой срез
 func (m *Model) DetectJoins(
+	aliasMap *AliasMap,
 	filterFields []string,	
 	sortFields []string, // опционально
 	presetFields []string, // опционально.
 ) ([]*JoinSpec, error) {
 	joinMap := map[string]*JoinSpec{}		
 	joins := make([]*JoinSpec, 0)
-	aliasMap := m._AliasMap
-
+	
+	
 	// Объединяем все поля в единый список для рекурсивного поиска
 	allFields := make([]string, 0, len(filterFields)+len(sortFields)+len(presetFields))
 	allFields = append(allFields, filterFields...)
@@ -74,10 +75,10 @@ func detectJoinsRecursive(
 			continue
 		}
 
-		fullPath := pathPrefix + relName
+		fullPath := pathPrefix + relName		
 		alias, ok := aliasMap.PathToAlias[fullPath]
 		if !ok {
-			return joins, fmt.Errorf("alias not found for path %s", fullPath)
+			return joins, fmt.Errorf("alias not found for path %s в карте %+v for model %s", fullPath, aliasMap.PathToAlias, m.Name)
 		}
 
 		// Если JOIN уже добавлен — ок, но возможно нужна рекурсия глубже

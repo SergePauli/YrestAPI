@@ -17,21 +17,22 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
     m, ok := model.Registry[req.Model]
     if !ok { return nil, fmt.Errorf("resolver: model not found: %s", req.Model) }
     // Получаем карту алиасов из Redis или строим на лету
-	err := m.GetAliasMapFromRedisOrBuild(ctx, req.Model)
+    var preset *model.DataPreset
+	if (req.Preset != "") {
+        preset = m.GetPreset(req.Preset)
+	} else {
+		preset = req.PresetObj
+	}	
+    if preset == nil { return nil, fmt.Errorf("preset not found: %s.%s", req.Model, req.Preset) }
+	aliasMap, err := m.CreateAliasMap(m, preset, req.Filters, req.Sorts)
 	if err != nil {
 		log.Printf("resolver: alias map error: %v", err)
 	 	return nil, fmt.Errorf("alias map error: %s", err)
 	}
-		var preset *model.DataPreset
-		if (req.Preset != "") {
-    	preset = m.GetPreset(req.Preset)
-		} else {
-			preset = req.PresetObj
-		}	
-    if preset == nil { return nil, fmt.Errorf("preset not found: %s.%s", req.Model, req.Preset) }
-
+	
+    
     // 1) главный SELECT
-    sb, err := m.BuildIndexQuery(req.Filters, req.Sorts, preset, req.Offset, req.Limit)
+    sb, err := m.BuildIndexQuery(aliasMap, req.Filters, req.Sorts, preset, req.Offset, req.Limit)
     if err != nil { return nil, err }
 
     sqlStr, args, err := sb.ToSql()
@@ -45,28 +46,28 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
     defer rows.Close()
 
 		// функция, восстанавливающая поля из aliasMap
-    items, err := m.ScanFlatRows(rows, preset) 
+    items, err := m.ScanFlatRows(rows, preset, aliasMap) 
     //log.Printf("Resolver: main items: %+v", items)
     if err != nil { return nil, err }
     if len(items) == 0 { return items, nil }
 		
 
     // 4) определяем хвосты из пресета (рекурсивно по belongs_to)
-		tails := collectTails(m, preset)
-		if len(tails) == 0 {
-				// ⬅️ Хвостов нет — сразу финализируем и выходим
-				if err := finalizeItems(m, preset, items); err != nil {
-				return nil, fmt.Errorf("resolver: finalize: %w", err)
-			}
-            //log.Printf("Resolver: final items: %+v", items)
-			return items, nil
+	tails := collectTails(m, preset)
+	if len(tails) == 0 {
+		// ⬅️ Хвостов нет — сразу финализируем и выходим
+		if err := finalizeItems(m, preset, items); err != nil {
+			return nil, fmt.Errorf("resolver: finalize: %w", err)
 		}
+        //log.Printf("Resolver: final items: %+v", items)
+		return items, nil
+	}
 
         // 3) Собираем parentIDs отдельно для КАЖДОГО хвоста, используя rel.PK
 	type idSet map[any]struct{}
-		parentIDsByTail := make(map[string][]any) // FieldAlias -> []id
+	parentIDsByTail := make(map[string][]any) // FieldAlias -> []id
 
-		for _, t := range tails {
+	for _, t := range tails {
     	// ключ родителя, который участвует в связи
     	pkName := t.Rel.PK
     	seen := make(idSet)
@@ -84,18 +85,17 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	}
         
     type grouped = map[any][]map[string]any
-		groupedByAlias := make(map[string]grouped)
+	groupedByAlias := make(map[string]grouped)
 
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		var rerr error
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var rerr error
 
-		for _, t := range tails {    	
-    	ids := parentIDsByTail[t.FieldAlias]
+	for _, t := range tails {    	
+        ids := parentIDsByTail[t.FieldAlias]
     	if len(ids) == 0 {
-        continue
+            continue
     	}
-
     	wg.Add(1)
     	go func() {
         defer wg.Done()
@@ -130,27 +130,27 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	    }
 				
         // рекурсивный вызов того же Resolver
-				var childReq IndexRequest
-				synthetic := makeSyntheticPreset(childPreset, fk)
+		var childReq IndexRequest		
         if t.Rel.Through == "" {
             // прямой has_
+            synthetic := makeSyntheticPreset(childPreset, fk)
             childFilters[fk+"__in"] = ids 
-        		childReq = IndexRequest{
+        	childReq = IndexRequest{
             	Model:   t.Rel.Model,
             	Preset:  "",
             	Filters: childFilters,
             	Sorts:   nil,
             	Offset:  0,
             	Limit:   limit, // has_one отберём первый после группировки		
-							PresetObj: synthetic, 				
-        		}
-					} else {
-						childReq, err = MakeThroughChildRequest(m, t.Rel, t.NestedPreset, ids)
-						if err != nil {
-							mu.Lock(); rerr = fmt.Errorf("tail '%s': %w", t.FieldAlias, err); mu.Unlock()
-							return
-						}
-					}	
+				PresetObj: synthetic, 				
+        	}
+		} else {
+			childReq, err = MakeThroughChildRequest(m, t.Rel, t.NestedPreset, ids)
+			if err != nil {
+				mu.Lock(); rerr = fmt.Errorf("tail '%s': %w", t.FieldAlias, err); mu.Unlock()
+				return
+			}
+		}	
 		//log.Printf("Resolver: child request for tail '%s': %+v", t.FieldAlias, childReq)
         childItems, err := Resolver(ctx, childReq)
         if err != nil {

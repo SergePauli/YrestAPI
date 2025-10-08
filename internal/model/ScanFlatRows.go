@@ -13,11 +13,10 @@ import (
 // ScanFlatRows преобразует плоский результат SQL (alias.column без AS) в []map[string]any.
 // Ключи строятся как "<path>.<column>" или просто "column" для корня.
 // Путь берём из m._AliasMap.AliasToPath (для "main" путь пустой).
-func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset) ([]map[string]any, error) {
+func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset, aliasMap *AliasMap) ([]map[string]any, error) {
 	if rows == nil {
 		return nil, fmt.Errorf("rows is nil")
-	}
-	aliasMap := m.GetAliasMap()
+	}	
 	if aliasMap == nil {
 		return nil, fmt.Errorf("alias map is nil (AttachAliasMap must be called)")
 	}

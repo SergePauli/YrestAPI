@@ -6,7 +6,7 @@ import (
 	"github.com/Masterminds/squirrel"
 )
 
-func (m *Model) BuildCountQuery(filters map[string]interface{}) (squirrel.SelectBuilder, error) {
+func (m *Model) BuildCountQuery(aliasMap *AliasMap, filters map[string]interface{}) (squirrel.SelectBuilder, error) {
 	sb := squirrel.SelectBuilder{}.PlaceholderFormat(squirrel.Dollar)
 	sb = sb.From(fmt.Sprintf("%s AS main", m.Table))
 
@@ -15,7 +15,7 @@ func (m *Model) BuildCountQuery(filters map[string]interface{}) (squirrel.Select
 		filterKeys = append(filterKeys, key)
 	}
 	// Определим, какие JOIN-ы нужны — на основе ключей в filters
-	requiredJoins, err := m.DetectJoins(filterKeys, nil, nil)
+	requiredJoins, err := m.DetectJoins(aliasMap, filterKeys, nil, nil)
 	if err != nil {
 		return sb, err
 	}
@@ -40,7 +40,7 @@ func (m *Model) BuildCountQuery(filters map[string]interface{}) (squirrel.Select
 		sb = sb.Column("COUNT(*)")
 	}
 
-	wherePart, err := m.buildWhereClause(filters, requiredJoins)
+	wherePart, err := m.buildWhereClause(aliasMap, filters, requiredJoins)
 	if err != nil {
 		return sb, err
 	}

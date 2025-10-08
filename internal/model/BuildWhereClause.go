@@ -8,6 +8,7 @@ import (
 	"github.com/Masterminds/squirrel"
 )
 func (m *Model) buildWhereClause(
+	aliasMap *AliasMap,
 	filters map[string]any,
 	joins []*JoinSpec,		
 ) (squirrel.Sqlizer, error) {
@@ -30,7 +31,7 @@ func (m *Model) buildWhereClause(
 		if idx := strings.LastIndex(field, "."); idx != -1 {
 			path := field[:idx]      // например "contragent.organization"
 			column := field[idx+1:] // например "name"
-			alias, ok := m._AliasMap.PathToAlias[path]
+			alias, ok := aliasMap.PathToAlias[path]
 			if !ok {
 				log.Printf("⚠️ Unknown relation path in filter: %s", path)
 				continue

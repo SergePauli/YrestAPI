@@ -88,7 +88,9 @@ func TestScanFlatRows_SkipsPresetPlaceholders(t *testing.T) {
 		Relations: map[string]*ModelRelation{
 			"address": {Type: "belongs_to", FK: "address_id", PK: "id", _ModelRef: address},
 		},
-		_AliasMap: &AliasMap{
+		
+	}
+	aliasMap:= &AliasMap{
 			// важны оба направления: путь → алиас и обратно
 			PathToAlias: map[string]string{
 				"address":      "t0",
@@ -98,9 +100,7 @@ func TestScanFlatRows_SkipsPresetPlaceholders(t *testing.T) {
 				"t0": "address",
 				"t1": "address.area",
 			},
-		},
-	}
-
+		};
 	// Пресет корня: один preset "address" (виртуальная колонка) + его вложенные листовые поля
 	p := &DataPreset{
 		Name: "card",
@@ -121,7 +121,7 @@ func TestScanFlatRows_SkipsPresetPlaceholders(t *testing.T) {
 
 	rows := &stubRows{data: [][]any{vals}}
 
-	gotFlat, err := root.ScanFlatRows(rows, p)
+	gotFlat, err := root.ScanFlatRows(rows, p, aliasMap)
 	
 	if err != nil {
 		t.Fatalf("ScanFlatRows error: %v", err)

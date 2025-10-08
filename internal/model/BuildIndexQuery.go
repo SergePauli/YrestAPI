@@ -10,6 +10,7 @@ import (
 
 // BuildIndexQuery строит SELECT-запрос для /index эндпоинта
 func (m *Model) BuildIndexQuery(
+	aliasMap *AliasMap, // карта алиасов 
 	filters map[string]interface{},
 	sorts []string,       // array сортировок: ["field1 ASC", "field2 DESC"]
 	preset *DataPreset,        // выбранный пресет
@@ -42,7 +43,7 @@ func (m *Model) BuildIndexQuery(
     sortFields[i] = parts[0]
 	}	
 	presetFieldPaths := m.ScanPresetFields(preset, "")		
-	joinSpecs, err := m.DetectJoins(filterKeys, sortFields, presetFieldPaths)
+	joinSpecs, err := m.DetectJoins(aliasMap, filterKeys, sortFields, presetFieldPaths)
 		
 	if err != nil {
 		return sb, err
@@ -61,8 +62,8 @@ func (m *Model) BuildIndexQuery(
 		}
 	}
 	// 3.1. Добавляем поля из пресета	
-	 selectCols,_ := m.ScanColumns(preset, m._AliasMap, "")	
- 
+	 selectCols,_ := m.ScanColumns(preset, aliasMap, "")	
+	
 	if hasDistinct {
     pkFields := m.GetPrimaryKeys() // []string, например ["person.id", "person.code"]
 		if len(pkFields) == 1 {
@@ -79,7 +80,7 @@ func (m *Model) BuildIndexQuery(
 	sb = sb.Columns(selectCols...)	
 
 	// 4. WHERE фильтры
-	whereBuilder, err := m.buildWhereClause(filters, joinSpecs)
+	whereBuilder, err := m.buildWhereClause(aliasMap, filters, joinSpecs)
 	if err != nil {
 		return sb, err
 	}
@@ -89,24 +90,25 @@ func (m *Model) BuildIndexQuery(
 
 	// 5. ORDER BY
 	for _, s := range sorts {
-		parts := strings.SplitN(s, " ", 2) // [path, direction?]
+    parts := strings.SplitN(s, " ", 2) // [path, direction?]
     fieldPath := parts[0]
     dir := ""
     if len(parts) > 1 {
         dir = strings.TrimSpace(parts[1])
     }
 
-    // Расщепляем путь на пресет и поле
-    pathParts := strings.SplitN(fieldPath, ".", 2)
-    if len(pathParts) != 2 {
-        // если путь невалидный — пропускаем
+    // ищем последний "."
+    idx := strings.LastIndex(fieldPath, ".")
+    if idx == -1 {
+        // если точек нет — пропускаем
         continue
     }
-    presetPath := pathParts[0]
-    fieldName := pathParts[1]
+
+    presetPath := fieldPath[:idx]     // всё до последней точки
+    fieldName  := fieldPath[idx+1:]  // всё после последней точки
 
     // Подмена пресета на алиас
-    alias, ok := m._AliasMap.PathToAlias[presetPath]
+    alias, ok := aliasMap.PathToAlias[presetPath]
     if !ok {
         alias = presetPath // fallback — без подмены
     }
@@ -116,8 +118,7 @@ func (m *Model) BuildIndexQuery(
     if dir != "" {
         orderExpr += " " + dir
     }
-		
-		sb = sb.OrderBy(orderExpr)
+    sb = sb.OrderBy(orderExpr)
 	}
 
 	// 6. LIMIT / OFFSET

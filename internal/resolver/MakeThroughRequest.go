@@ -59,8 +59,11 @@ func MakeThroughChildRequest(
 			{Source: fk, Type: "int", Alias: fk},
 			belongsField, // поле с belongs_to на конечную модель
 		},
+		FieldsAliasMap: &model.AliasMap{
+        PathToAlias: map[string]string{unwrapKey: "t0"},
+        AliasToPath: map[string]string{"t0": unwrapKey},
+    },
 	}
-	
 	// Логическое имя промежуточной модели (ключ в Registry)
 	throughModelName := ""
 	for name, ptr := range model.Registry {
@@ -73,7 +76,7 @@ func MakeThroughChildRequest(
 	// Обычный вызов Resolver: модель = промежуточная, пресет = синтетический,
 	// фильтр простой: fk__in = parentIDs, и просим развернуть unwrapKey.
 	req := IndexRequest{
-		Model:     throughModelName,
+		Model:  throughModelName,
 		Preset: "",
 		PresetObj: synthetic,
 		Filters:   map[string]any{fk + "__in": parentIDs},
@@ -112,5 +115,6 @@ func makeSyntheticPreset(orig *model.DataPreset, fk string) *model.DataPreset {
     return &model.DataPreset{
 				Name: orig.Name, 
         Fields: fields,
+				FieldsAliasMap: orig.FieldsAliasMap, // сохраняем карту алиасов
     }
 }
