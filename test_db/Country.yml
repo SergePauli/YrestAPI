@@ -1,0 +1,24 @@
+table: countries
+
+relations:
+  organizations:
+    type: has_many
+    model: Organization
+
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: code
+        type: string
+      - source: name
+        type: string
+
+  card:
+    extends: item
+    fields:
+      - source: name
+        alias: display_name
+        formatter: "{code} - {name}"
+        type: string

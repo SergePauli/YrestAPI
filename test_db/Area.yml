@@ -1,0 +1,12 @@
+table: areas
+relations:
+  addresses:
+    type: has_many
+    model: Address
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string

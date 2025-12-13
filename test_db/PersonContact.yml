@@ -1,0 +1,17 @@
+table: person_contacts
+relations:
+  person:
+    type: belongs_to
+    model: Person
+  contact:
+    type: belongs_to
+    model: Contact
+presets:
+  item:
+    fields:
+      - source: person_id
+        type: int
+      - source: contact_id
+        type: int
+      - source: is_primary
+        type: bool

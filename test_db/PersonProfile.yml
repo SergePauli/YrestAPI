@@ -1,0 +1,15 @@
+table: person_profiles
+relations:
+  person:
+    type: belongs_to
+    model: Person
+    
+presets:
+  item:
+    fields:
+      - source: person_id
+        type: int
+      - source: bio
+        type: string
+      - source: birthday
+        type: string

@@ -1,0 +1,15 @@
+table: contragent_addresses
+relations:
+  contragent:
+    type: belongs_to
+    model: Contragent
+  address:
+    type: belongs_to
+    model: Address
+presets:
+  item:
+    fields:
+      - source: contragent_id
+        type: int
+      - source: address_id
+        type: int

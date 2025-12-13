@@ -1,0 +1,26 @@
+table: addresses
+relations:
+  area:
+    type: belongs_to
+    model: Area
+  contragents:
+    type: has_many
+    model: Contragent
+    through: ContragentAddress
+  contragent_addresses:
+    type: has_many
+    model: ContragentAddress
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: line1
+        type: string
+      - source: area_id
+        type: int
+      - source: postal_code
+        type: string
+      - source: "{line1}, {area.name}"
+        alias: label
+        type: formatter

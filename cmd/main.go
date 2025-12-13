@@ -15,6 +15,7 @@ func main() {
 	cfg := config.LoadConfig()
 
 	// PostgreSQL
+	
 	if err := db.InitPostgres(cfg.PostgresDSN); err != nil {
 		log.Fatalf("❌ PostgreSQL init failed: %v", err)
 	}

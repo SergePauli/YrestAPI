@@ -1,0 +1,36 @@
+table: organizations
+relations:
+  country:
+    type: belongs_to
+    model: Country
+  departments:
+    type: has_many
+    model: Department
+    order: name ASC
+  employees:
+    type: has_many
+    model: Employee
+  projects:
+    type: has_many
+    model: Project
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string
+      - source: country_id
+        type: int
+  card:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string
+      - source: country
+        type: preset
+        preset: item
+      - source: "{name} [{country.code}]"
+        alias: label
+        type: formatter

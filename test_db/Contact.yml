@@ -1,0 +1,23 @@
+table: contacts
+relations:
+  persons:
+    type: has_many
+    model: Person
+    through: PersonContact
+    order: last_name ASC, first_name ASC
+  person_contacts:
+    type: has_many
+    model: PersonContact
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: kind
+        type: string
+      - source: value
+        type: string
+      - source: "{kind}: {value}"
+        alias: label
+        type: formatter  
+

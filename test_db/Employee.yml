@@ -1,0 +1,43 @@
+table: employees
+
+relations:
+  organization:
+    type: belongs_to
+    model: Organization
+  department:
+    type: belongs_to
+    model: Department
+  person:
+    type: belongs_to
+    model: Person
+
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: organization_id
+        type: int
+      - source: department_id
+        type: int
+      - source: person_id
+        type: int
+      - source: position
+        type: string
+      - source: hired_at
+        type: string
+  with_person_label:
+    extends: item
+    fields:
+      - source: person
+        type: preset
+        preset: item
+      - source: "{person.full_name}"
+        alias: person_label
+        type: formatter
+  with_org_card:
+    extends: item
+    fields:
+      - source: organization
+        type: preset
+        preset: card    

@@ -1,0 +1,69 @@
+table: people
+relations:
+  profile:
+    type: has_one
+    model: PersonProfile
+  employees:
+    type: has_many
+    model: Employee
+  contacts:
+    type: has_many
+    model: Contact
+    through: PersonContact
+    order: kind ASC
+  email:
+    type: has_one
+    model: Contact
+    through: PersonContact
+    where: .kind = 'email'
+  phone:
+    type: has_one
+    model: Contact
+    through: PersonContact
+    where: .kind = 'phone' 
+  primary_contact:
+    type: has_one
+    model: Contact
+    through: PersonContact
+    through_where: is_primary = true
+  project_members:
+    type: has_many
+    model: ProjectMember
+  projects:
+    type: has_many
+    model: Project
+    through: ProjectMember
+
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: first_name
+        type: string
+        internal: true
+      - source: last_name
+        type: string        
+      - source: "{last_name} {first_name}"
+        alias: full_name        
+        type: formatter
+  card:
+    extends: item
+    fields:
+      - source: id
+        alias: person_id
+        type: int
+      - source: first_name
+        type: string
+  with_contacts:
+    extends: item
+    fields:
+      - source: email
+        type: preset
+        preset: item
+      - source: phone
+        type: preset
+        preset: item
+      - source: "{full_name} {email.value} {phone.value}"
+        alias: head
+        type: formatter      

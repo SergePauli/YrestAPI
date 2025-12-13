@@ -1,0 +1,19 @@
+table: project_members
+relations:
+  project:
+    type: belongs_to
+    model: Project
+  person:
+    type: belongs_to
+    model: Person
+presets:
+  item:
+    fields:
+      - source: project_id
+        type: int
+      - source: person_id
+        type: int
+      - source: role
+        type: string
+      - source: joined_at
+        type: string

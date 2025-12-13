@@ -3,8 +3,6 @@ package resolver
 import (
 	"YrestAPI/internal/model"
 	"fmt"
-	"log"
-	"maps"
 
 	"regexp"
 	"strconv"
@@ -18,10 +16,10 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	if p == nil || len(items) == 0 {
 		return nil
 	}
-
-	// 1.1 удаляем префиксы alias'ов у preset-полей belongs_to
-	stripPresetPrefixes(m, p, items, "")
-	// 1.2 посчитать все formatter'ы до удаления internal
+	// 0 удаляем префиксы alias'ов у preset-полей belongs_to
+	//stripPresetPrefixes(m, p, items, "")
+	
+	// 1 посчитать все formatter'ы до удаления internal
 	if err := applyAllFormatters(m, p, items, ""); err != nil {
 		return err
 	}
@@ -43,8 +41,12 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	for i := range items {
 		
 		// точные ключи
-		for _, k := range exacts {
-			delete(items[i], k)
+		for _, k := range exacts {			
+			deleteExactPath(items[i], k)		
+		}
+		// удаления поддеревьев (person, members, members.contact)
+		for _, pref := range prefixes {
+			deletePrefix(items[i], pref)
 		}
 		// префиксные удаления
 		if len(prefixes) > 0 {
@@ -59,171 +61,313 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 		}
 		
 	}
+	
 	return nil
 }
 
-func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) error {
-	 // маленький локальный хелпер: достать/создать под-объект по prefix
-    	getCtx := func(root map[string]any, pfx string) map[string]any {
-        if pfx == "" {
-            return root
-        }				
-        cur := root				
-        for _, seg := range strings.Split(pfx, ".") {						
-            seg = strings.TrimSpace(seg)
-            if seg == "" {
-                continue
-            } 
-            if v, ok := cur[seg]; ok {
-                if m, ok := v.(map[string]any); ok {
-                    cur = m
-                    continue
-                }
-            }
-            // создаём, если нет или тип не map
-            m := map[string]any{}
-            cur[seg] = m
-            cur = m
-        }
-				
-        return cur
-			}
-	var head *formatterNode		
-	for _, f := range p.Fields {
-		switch f.Type {
+// --- helpers: recursive delete for dotted paths & prefixes ---
 
-		case "preset":
-			relKey := f.Source
-			rel, ok := m.Relations[relKey]
-			nestedModel := rel.GetModelRef()
-			if !ok || rel == nil || rel.Type != "belongs_to" || nestedModel == nil {
-				// внутрь уходим только по belongs_to
-				continue
+// deleteExactPath удаляет ключ по точному dotted-пути из вложенных map/слайсов.
+// Пример: "person.first_name" или "members.first_name" (для каждого элемента).
+func deleteExactPath(root map[string]any, path string) {
+	segs := strings.Split(path, ".")
+	var walk func(cur any, idx int)
+	walk = func(cur any, idx int) {
+		if idx >= len(segs) {
+			return
+		}
+		switch node := cur.(type) {
+		case map[string]any:
+			key := segs[idx]
+			if idx == len(segs)-1 {
+				delete(node, key)
+				return
 			}
-
-			// nested preset
-			var nested *model.DataPreset
-			nested = f.GetPresetRef()
-			
-			if nested == nil && f.NestedPreset != "" {
-				nested = nestedModel.Presets[f.NestedPreset]
-			} 
-			if nested == nil {
-				log.Printf("applyAllFormatters: warning: preset %q not found in model %q for field %q", f.NestedPreset, relKey, f.Alias)
-				continue
+			if next, ok := node[key]; ok {
+				// углубляемся
+				walk(next, idx+1)
+				// если дальше был срез, он сам обработан; map оставляем как есть
 			}
-			
-			// Рекурсивно обрабатываем вложенные форматтеры
-			nextPrefix := prefixFor(prefix, relKey)
-			if err := applyAllFormatters(nestedModel, nested, items, nextPrefix); err != nil {
-				return err
+		case []any:
+			for _, it := range node {
+				walk(it, idx)
 			}
-			// Применяем formatter к belongs_to полю
-			if strings.TrimSpace(f.Formatter) != "" {	
-				pf := &f
-				node := &formatterNode{
-					Alias: f.Alias, // alias гарантирован валидатором
-					F: pf,
-				}
-				head = insertByDeps(head, node)
+		case []map[string]any:
+			for i := range node {
+				walk(node[i], idx)
 			}
-		case "formatter":
-			pf := &f
-			node := &formatterNode{
-					Alias: f.Alias, // alias гарантирован валидатором
-					F: pf,
-			}
-			head = insertByDeps(head, node)
 		default:
-			// прочие типы полей — пропускаем
+			// тупик: путь длиннее, чем структура
+			return
 		}
 	}
-	
-	// теперь обойти узлы в порядке зависимостей
+	walk(root, 0)
+}
+
+// deletePrefix удаляет ЦЕЛОЕ поддерево по dotted-префиксу.
+// Пример: "person" — вырежет person; "members" — вырежет массив целиком;
+// "members.contact" — из каждого элемента members вырежет contact.
+func deletePrefix(root map[string]any, prefix string) {
+	segs := strings.Split(prefix, ".")
+	// special-case: удалить прямо ключ у родителя
+	var walk func(parent any, cur any, idx int, lastKey string)
+	walk = func(parent any, cur any, idx int, lastKey string) {
+		// если дошли до конца префикса — удалить узел у parent
+		if idx >= len(segs) {
+			switch p := parent.(type) {
+			case map[string]any:
+				delete(p, lastKey)
+			case []any:
+				// удалять элемент по ключу из слайса не требуется (не применимо)
+			case []map[string]any:
+				// аналогично
+			}
+			return
+		}
+		switch node := cur.(type) {
+		case map[string]any:
+			key := segs[idx]
+			next, ok := node[key]
+			if !ok {
+				return
+			}
+			// идём глубже
+			walk(node, next, idx+1, key)
+		case []any:
+			for _, it := range node {
+				walk(parent, it, idx, lastKey)
+			}
+		case []map[string]any:
+			for i := range node {
+				walk(parent, node[i], idx, lastKey)
+			}
+		default:
+			return
+		}
+	}
+	// стартуем от фиктивного родителя, чтобы корректно удалить корневой ключ
+	walk(root, root, 0, "")
+}
+
+
+// синтетический пресет для through-модели (одно поле ведёт к конечной модели)
+func makeThroughSyntheticPreset(unwrapKey, finalPresetName string) *model.DataPreset {
+		return &model.DataPreset{
+			Fields: []model.Field{
+				{
+					Type:         "preset",
+					Source:       unwrapKey,
+					Alias:        unwrapKey,
+					NestedPreset: finalPresetName,
+				},
+			},
+		}
+	}
+
+func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) error {
+	// ---------- helpers ----------
+	getCtx := func(root map[string]any, pfx string) map[string]any {
+		if pfx == "" {
+			return root
+		}
+		cur := root
+		for _, seg := range strings.Split(pfx, ".") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			if v, ok := cur[seg]; ok {
+				if mm, ok := v.(map[string]any); ok {
+					cur = mm
+					continue
+				}
+			}
+			mm := map[string]any{}
+			cur[seg] = mm
+			cur = mm
+		}
+		return cur
+	}
+
+	getMapAt := func(root map[string]any, pfx string) (map[string]any, bool) {
+		if pfx == "" {
+			return root, true
+		}
+		cur := any(root)
+		for _, seg := range strings.Split(pfx, ".") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			mm, ok := cur.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			cur, ok = mm[seg]
+			if !ok {
+				return nil, false
+			}
+		}
+		mm, ok := cur.(map[string]any)
+		return mm, ok
+	}
+
+	// найти ключ unwrapKey в through-модели, ведущий к final-модели
+
+	findUnwrapKey := func(through, final *model.Model) string {
+		for k, r2 := range through.Relations {
+			if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == final {
+				return k
+			}
+		}
+		return ""
+	}
+
+	fieldKey := func(f *model.Field) string {
+		if strings.TrimSpace(f.Alias) != "" {
+			return f.Alias
+		}
+		return f.Source
+	}
+
+	var head *formatterNode
+
+	// ---------- 1) Подготовительный проход ----------
+	for _, f := range p.Fields {
+		if f.Type != "preset" {
+			if f.Type == "formatter" {
+				pf := &f
+				head = insertByDeps(head, &formatterNode{Alias: f.Alias, F: pf})
+			}
+			continue
+		}
+
+		rel := m.Relations[f.Source]
+		if rel == nil {
+			continue
+		}
+
+		// ВНИМАНИЕ: для рекурсий вниз используем ИМЕННО f.Source,
+		// потому что реальные данные приходят под source, а не под alias.
+		nextPrefixSource := prefixFor(prefix, f.Source)
+
+		switch rel.Type {
+		case "has_one", "has_many":
+			// has_* приходят из дочерних резолверов — внутрь НЕ уходим.
+			// Если есть through — распрямим контейнер до конечной модели.
+			if rel.Through != "" && rel.GetThroughRef() != nil && rel.GetModelRef() != nil {
+				through := rel.GetThroughRef()
+				final := rel.GetModelRef()
+				unwrapKey := findUnwrapKey(through, final)
+				if unwrapKey != "" {
+					key := fieldKey(&f) // куда кладём ветку в JSON (alias > source)
+					for i := range items {
+						parent := getCtx(items[i], prefix)
+						switch rel.Type {
+						case "has_one":
+							if sub, ok := parent[key].(map[string]any); ok {
+								if inner, ok := sub[unwrapKey].(map[string]any); ok {
+									parent[key] = inner
+								}
+							}
+						case "has_many":
+							switch vv := parent[key].(type) {
+							case []map[string]any:
+								out := make([]map[string]any, 0, len(vv))
+								for _, elem := range vv {
+									if inner, ok := elem[unwrapKey].(map[string]any); ok {
+										out = append(out, inner)
+									}
+								}
+								parent[key] = out
+							case []any:
+								out := make([]map[string]any, 0, len(vv))
+								for _, it := range vv {
+									if elem, ok := it.(map[string]any); ok {
+										if inner, ok := elem[unwrapKey].(map[string]any); ok {
+											out = append(out, inner)
+										}
+									}
+								}
+								parent[key] = out
+							}
+						}
+					}
+				}
+			}
+			// больше ничего для has_* не делаем
+
+		case "belongs_to":
+			// для belongs_to — единственный тип, куда рекурсируем
+			if nestedM := rel.GetModelRef(); nestedM != nil {
+				var nested *model.DataPreset
+				if f.GetPresetRef() != nil {
+					nested = f.GetPresetRef()
+				} else if f.NestedPreset != "" {
+					nested = nestedM.Presets[f.NestedPreset]
+				}
+				if nested != nil {
+					// РЕКУРСИЯ ПО f.Source, НЕ по alias
+					if err := applyAllFormatters(nestedM, nested, items, nextPrefixSource); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		// контейнерный форматтер выполним на текущем уровне
+		if strings.TrimSpace(f.Formatter) != "" {
+			pf := &f
+			head = insertByDeps(head, &formatterNode{Alias: f.Alias, F: pf})
+		}
+	}
+
+	// ---------- 2) Выполнение форматтеров текущего уровня ----------
 	for node := head; node != nil; node = node.Next {
 		f := node.F
 		switch f.Type {
 
 		case "formatter":
-			// шаблон в f.Source, писать в f.Alias на уровне prefix			
-			template := f.Source
-    	target   := f.Alias // alias обязателен
-    	// alias -> unwrapKey для preset-полей с through (через геттеры)
-    	unwrapByAlias := map[string]string{}
-    	for _, pf := range p.Fields {
-        rel, ok := m.Relations[pf.Source]
-				if !ok || rel == nil || rel.Through == "" {						
-						continue
+			tpl := f.Source
+			target := f.Alias
+			for i := range items {
+				ctx := getCtx(items[i], prefix) // строго своя ветка
+				ctx[target] = applyFormatter(tpl, ctx)
+			}
+
+		case "preset":
+			if strings.TrimSpace(f.Formatter) == "" {
+				continue
+			}
+			// ЧИТАЕМ дочерний контекст по f.Source (реальные данные),
+			// если его нет — fallback на alias-ветку (на случай когда данные действительно под alias).
+			childPrefixSrc := prefixFor(prefix, f.Source)
+			childPrefixAli := prefixFor(prefix, fieldKey(f))
+
+			for i := range items {
+				parent := getCtx(items[i], prefix)
+
+				var child map[string]any
+				if m, ok := getMapAt(items[i], childPrefixSrc); ok {
+					child = m
+				} else if m, ok := getMapAt(items[i], childPrefixAli); ok {
+					child = m
+				}
+
+				if child != nil {
+					parent[f.Alias] = applyFormatter(f.Formatter, child)
 				} else {
-        	through := rel.GetThroughRef()
-        	final   := rel.GetModelRef()
-        	// находим связь из through к final (обычно belongs_to "contact")				
-        	for k, r2 := range through.Relations {
-            if  r2.GetModelRef() == final {
-                unwrapByAlias[pf.Alias] = k // напр. "email" -> "contact"
-                break
-            }
-        	}
-				}	
-    	}
-    	for i := range items {
-        // копия ВСЕГО item — чтобы {name} и прочие обычные поля были доступны
-        fctx := make(map[string]any, len(items[i]))
-				maps.Copy(fctx, items[i])
-        if len(unwrapByAlias) > 0 {					
-					 // разворачиваем through-алиасы: fctx[email] = fctx[email][contact]
-					 for alias, inner := range unwrapByAlias {
-            if outer, ok := fctx[alias].(map[string]any); ok {
-                if innerMap, ok := outer[inner].(map[string]any); ok {
-                    fctx[alias] = innerMap
-                }
-            }
-        	}
-				} else {
-					 // без through — просто берем контекст текущего пресета				 
-					 fctx = getCtx(fctx, prefix)					 
-				}	 				
-        // считаем шаблон по fctx и записываем прямо в alias этого formatter-поля
-        items[i][target] = applyFormatter(template, fctx)
-			}	
-			case "preset":
-				// форматтер на контейнер (belongs_to / through)
-				relKey := f.Source
-				rel, ok:= m.Relations[relKey]			
-				alias := f.Alias
-				// определить unwrapKey для through (например "contact")
-    		unwrapKey := ""
-    		if ok && rel.Through != "" {
-        	for k, r2 := range rel.GetThroughRef().Relations {
-            if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == rel.GetModelRef() {
-                unwrapKey = k
-                break
-            }
-        	}
-    		}			  		
-				for i := range items {
-					if unwrapKey != "" {
-						ctx := getCtx(items[i], prefix)
-            // through: форматируем по конечной модели (alias -> unwrapKey)
-            if sub, ok := ctx[alias].(map[string]any); ok {
-                if inner, ok := sub[unwrapKey].(map[string]any); ok {
-                    ctx[alias] = applyFormatter(f.Formatter, inner)
-                } 
-            } else {
-                ctx[alias] = ""
-            }
-        	} else {
-            // обычный случай: форматируем по текущему контексту ветки
-						nextPrefix := prefixFor(prefix, f.Source)
-        		ctx := getCtx(items[i], nextPrefix) // контекст текущей ветки пресета
-            items[i][alias] = applyFormatter(f.Formatter, ctx)						
-        	}
-				}	
-		}		
-	}	
+					parent[f.Alias] = ""
+				}
+			}
+		}
+	}
+
 	return nil
-	
 }
+
+
+// удалить префиксы alias'ов у preset-полей belongs_to
 
 func prefixFor(base string, relKey string) string {
 	if base == "" {
@@ -262,51 +406,65 @@ func insertByDeps(head *formatterNode, node *formatterNode) *formatterNode {
 // - prefixes: для preset/internal — удалить всё поддерево по пути "<prefix>.<relKey>"
 // - exacts:   для простых полей/internal — удалить ровно "<prefix>.<field>"
 func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, prefixes *[]string, exacts *[]string) {
-	for _, f := range p.Fields {
-		if f.Type == "preset" {
-			relKey := f.Source
-			rel, ok := m.Relations[relKey]
-			nestedModel := rel.GetModelRef()
-			if !ok || rel == nil || nestedModel == nil {
-				continue
-			}
-			curPath := relKey
-			if prefix != "" {
-				curPath = prefix + "." + relKey
-			}
+    for _, f := range p.Fields {
+        if f.Type == "preset" {
+            relKey := f.Source
+            rel, ok := m.Relations[relKey]
+            if !ok || rel == nil {
+                continue
+            }
+            curPath := relKey
+            if prefix != "" {
+                curPath = prefix + "." + relKey
+            }
 
-			// если preset помечен internal — удаляем всё поддерево
-			if f.Internal {
-				*prefixes = append(*prefixes, curPath)
-				// тем не менее, продолжим обход, если внутри есть ещё internal (на всякий случай)
-			}
+            if f.Internal {
+                *prefixes = append(*prefixes, curPath)
+            }
 
-			// рекурсивно в nested только если belongs_to (равно как и в ScanColumns)
-			if rel.Type == "belongs_to" {
-				var nested *model.DataPreset
-				if f.NestedPreset != "" {
-					nested = nestedModel.Presets[f.NestedPreset]
-				}
-				if nested != nil {
-					collectInternalMarkers(nestedModel, nested, curPath, prefixes, exacts)
-				}
-			}
-			continue
-		}
+            // belongs_to — как раньше
+            if rel.Type == "belongs_to" && rel.GetModelRef() != nil {
+                nestedModel := rel.GetModelRef()
+                var nested *model.DataPreset
+                if f.NestedPreset != "" {
+                    nested = nestedModel.Presets[f.NestedPreset]
+                }
+                if nested != nil {
+                    collectInternalMarkers(nestedModel, nested, curPath, prefixes, exacts)
+                }
+            }
 
-		// простой internal-поле — точечное удаление
-		if f.Internal {
-			// ключ строим по тем же правилам dotted-путей, что в ScanFlatRows
-			var key string
-			if prefix == "" {
-				key = f.Source
-			} else {
-				key = prefix + "." + f.Source
-			}
-			*exacts = append(*exacts, key)
-		}
-	}
+           // through — рекурсивно зайдём в синтетический пресет промежуточной модели
+           if rel.Through != "" && rel.GetThroughRef() != nil && rel.GetModelRef() != nil {
+               through := rel.GetThroughRef()
+               final   := rel.GetModelRef()
+               unwrapKey := ""
+               for k, r2 := range through.Relations {
+                   if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == final {
+                       unwrapKey = k
+                       break
+                   }
+               }
+               if unwrapKey != "" {
+                   finalPresetName := f.NestedPreset
+                   if finalPresetName == "" {
+                       if _, ok := final.Presets["item"]; ok { finalPresetName = "item" }
+                   }
+                   syn := makeThroughSyntheticPreset(unwrapKey, finalPresetName)
+                   collectInternalMarkers(through, syn, curPath, prefixes, exacts)
+               }
+           }
+           continue
+        }
+
+        if f.Internal {
+            var key string
+            if prefix == "" { key = f.Source } else { key = prefix + "." + f.Source }
+            *exacts = append(*exacts, key)
+        }
+    }
 }
+
 
 
 var reToken = regexp.MustCompile(`\{([a-zA-Z0-9_\.]+)\}(?:\[(\d+)(?:\.\.(\d+))?\])?`)

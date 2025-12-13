@@ -1,0 +1,33 @@
+table: departments
+
+relations:
+  organization:
+    type: belongs_to
+    model: Organization
+  parent:
+    type: belongs_to
+    model: Department
+    fk: parent_id
+    reentrant: true
+    max_depth: 8
+  children:
+    type: has_many
+    model: Department
+    fk: parent_id
+    reentrant: true
+    max_depth: 8
+  employees:
+    type: has_many
+    model: Employee
+
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: organization_id
+        type: int
+      - source: name
+        type: string
+      - source: parent_id
+        type: int

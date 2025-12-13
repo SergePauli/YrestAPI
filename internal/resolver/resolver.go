@@ -47,13 +47,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 		// функция, восстанавливающая поля из aliasMap
     items, err := m.ScanFlatRows(rows, preset, aliasMap) 
-    //log.Printf("Resolver: main items: %+v", items)
+    log.Printf("Resolver: main items: %+v", items)
     if err != nil { return nil, err }
     if len(items) == 0 { return items, nil }
 		
 
     // 4) определяем хвосты из пресета (рекурсивно по belongs_to)
-	tails := collectTails(m, preset)
+	tails := collectTails(m, preset, /*prefix*/ "")
 	if len(tails) == 0 {
 		// ⬅️ Хвостов нет — сразу финализируем и выходим
 		if err := finalizeItems(m, preset, items); err != nil {
@@ -139,7 +139,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
             	Model:   t.Rel.Model,
             	Preset:  "",
             	Filters: childFilters,
-            	Sorts:   nil,
+            	Sorts:   buildOrderSorts(t.Rel.Order, /*prefix*/ ""),
             	Offset:  0,
             	Limit:   limit, // has_one отберём первый после группировки		
 				PresetObj: synthetic, 				
@@ -175,42 +175,80 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 		if rerr != nil {
     return nil, rerr
 	}
-	// 5) Собираем итоговые элементы, склеивая хвосты по алиасам
-	for i := range items {
-		for _, t := range tails {
-    	pid := items[i][t.Rel.PK]
-    	if groups, ok := groupedByAlias[t.FieldAlias][pid]; ok {
-				 if t.LimitOne {
-                if t.Formatter != "" {
-                    items[i][t.FieldAlias] = applyFormatter(t.Formatter, groups[0])
-                } else {
-                    delete(groups[0], t.Rel.FK)
-                    items[i][t.FieldAlias] = groups[0]
-                }
-            } else {
-                if t.Formatter != "" {
-                    out := make([]string, len(groups))
-                    for idx, row := range groups {
-                        out[idx] = applyFormatter(t.Formatter, row)
-                    }
-                    items[i][t.FieldAlias] = out
-                } else {
-                    for _, row := range groups {
-                        delete(row, t.Rel.FK)
-                    }
-                    items[i][t.FieldAlias] = groups
-                }
-          }
-    	} else {
-        items[i][t.FieldAlias] = nil 
+	
+    // 5) Собираем итоговые элементы, склеивая хвосты по алиасам
+    for i := range items {
+	  for _, t := range tails {
+		pid := items[i][t.Rel.PK]
+
+		// Определяем целевой контекст для записи: либо указанный TargetPath, либо корень item
+		target := items[i]
+		if tp := strings.TrimSpace(t.TargetPath); tp != "" {
+			for _, seg := range strings.Split(tp, ".") {
+				seg = strings.TrimSpace(seg)
+				if seg == "" {
+					continue
+				}
+				if v, ok := target[seg]; ok {
+					if m, ok := v.(map[string]any); ok {
+						target = m
+						continue
+					}
+				}
+				m := map[string]any{}
+				target[seg] = m
+				target = m
 			}
-		}	
-	}	
-    //log.Printf("Resolver: final items: %+v", items)
+		}
+
+		// Получаем группы дочерних записей
+		var groups []map[string]any
+		if m, ok := groupedByAlias[t.FieldAlias]; ok {
+			if g, ok := m[pid]; ok {
+				groups = g
+			}
+		}
+
+		if len(groups) == 0 {
+			if t.LimitOne {
+				target[t.FieldAlias] = nil
+			} else {
+				target[t.FieldAlias] = []any{}
+			}
+			continue
+		}
+
+		if t.LimitOne {
+			if strings.TrimSpace(t.Formatter) != "" {
+				// Легаси: если вдруг задан форматтер — применяем к первой записи
+				target[t.FieldAlias] = applyFormatter(t.Formatter, groups[0])
+			} else {
+				delete(groups[0], t.Rel.FK)
+				target[t.FieldAlias] = groups[0]
+			}
+		} else {
+			if strings.TrimSpace(t.Formatter) != "" {
+				out := make([]string, len(groups))
+				for idx, row := range groups {
+					out[idx] = applyFormatter(t.Formatter, row)
+				}
+				target[t.FieldAlias] = out
+			} else {
+				for _, row := range groups {
+					delete(row, t.Rel.FK)
+				}
+				target[t.FieldAlias] = groups
+			}
+		}
+	  }
+    }
+	
+    
 	// 8) финализация formatter/computed уже ПОСЛЕ склейки
 	if err := finalizeItems(m, preset, items); err != nil {
 			return nil, fmt.Errorf("resolver: finalize: %w", err)
 	}
+    log.Printf("Resolver: final items: %+v", items)
 	// 9) for Through: развернём вложенные preset-поля
 	if req.PresetObj != nil && req.UnwrapField != "" {
     // fk ты уже знаешь (это Source первого поля синтетического пресета)
@@ -227,42 +265,66 @@ type TailSpec struct {
     Rel          *model.ModelRelation
     NestedPreset string        // как в YAML (Model.Preset или Preset)
     LimitOne     bool
-		Formatter  string // если задано, то применим formatter к каждому элементу
+    TargetPath  string // если задано, кладём результат в TargetPathCtx[FieldAlias]
+	Formatter  string // возможно мусорное поле, 
+    // так как форматтеры на has_one/has_many считаются в дочерних вызовах резолвера
 }
 // Собираем хвосты (has_one/has_many) из пресета, рекурсивно проходя belongs_to
-func collectTails(m *model.Model, p *model.DataPreset) []TailSpec {
-    var out []TailSpec
-    if p == nil { return out }
-    for _, f := range p.Fields {
-        if f.Type != "preset" { continue }
-        rel, ok := m.Relations[f.Source]
-        if !ok || rel == nil { continue }
+func collectTails(m *model.Model, p *model.DataPreset, prefix string) []TailSpec {
+	out := []TailSpec{}
+	if p == nil {
+		return out
+	}
 
-        switch rel.Type {
-        case "belongs_to":
-            // рекурсивно вглубь
-            var nested *model.DataPreset
-						nestedModel := rel.GetModelRef()
-						if nestedModel != nil {            
-                nested = nestedModel.Presets[f.NestedPreset]
-            }
-            if nested != nil  {
-                out = append(out, collectTails(nestedModel, nested)...)
-            }
+	for _, f := range p.Fields {
+		if f.Type != "preset" {
+			continue
+		}
+		rel, ok := m.Relations[f.Source]
+		if !ok || rel == nil {
+			continue
+		}
 
-        case "has_one", "has_many":
-            out = append(out, TailSpec{
-                FieldAlias:   f.Alias,
-                RelKey:       f.Source,
-                Rel:          rel,
-                NestedPreset: f.NestedPreset,
-								Formatter:    strings.TrimSpace(f.Formatter),
-                LimitOne:     rel.Type == "has_one",
-            })
-        }
-    }
-    return out
+		switch rel.Type {
+		case "belongs_to":
+			// рекурсия только если есть nested пресет
+			nestedModel := rel.GetModelRef()
+			var nested *model.DataPreset
+			if nestedModel != nil {
+				if f.GetPresetRef() != nil {
+					nested = f.GetPresetRef()
+				} else if f.NestedPreset != "" {
+					nested = nestedModel.Presets[f.NestedPreset]
+				}
+			}
+			if nested != nil {
+				// углубляемся по source (контейнер belongs_to живёт под source)
+				nextPrefix := f.Source
+				if prefix != "" {
+					nextPrefix = prefix + "." + f.Source
+				}
+				out = append(out, collectTails(nestedModel, nested, nextPrefix)...)
+			}
+
+		case "has_one", "has_many":
+			alias := f.Alias
+			if strings.TrimSpace(alias) == "" {
+				alias = f.Source
+			}
+			out = append(out, TailSpec{
+				FieldAlias:   alias,
+				RelKey:       f.Source,
+				Rel:          rel,
+				NestedPreset: f.NestedPreset,
+				LimitOne:     rel.Type == "has_one",
+				TargetPath:   prefix, // писать в контекст текущей ветки пресета
+				Formatter:    strings.TrimSpace(f.Formatter), // не используется здесь, но сохраняем
+			})
+		}
+	}
+	return out
 }
+
 
 // req.UnwrapField: например, "contact"
 // fk: имя FK, которое ты положил в синтетический пресет (например "person_id")

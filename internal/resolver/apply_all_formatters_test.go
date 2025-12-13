@@ -263,7 +263,7 @@ func TestApplyAllFormatters_PresetFormatter_WritesToAliasName(t *testing.T) {
     // Проверяем: значение попало в alias "name"
     gotName, _ := items[0]["name"].(string)
     if strings.TrimSpace(gotName) != "ООО «Сириус»" {
-        t.Fatalf("preset->formatter should write into alias 'name', got %#v", items[0]["name"])
+        t.Fatalf("preset->formatter should write into alias 'name', got item: %#v", items[0])
     }
 
     // И контейнер 'organization' остаётся map, не строка
@@ -312,7 +312,7 @@ func TestApplyAllFormatters_NestedPreset_LocalFormatter(t *testing.T) {
 	}
 
 	nm, _ := items[0]["naming"].(map[string]any)
-	if nm == nil || items[0]["head"] != "Соболева М.Д." {
+	if nm == nil || nm["head"] != "Соболева М.Д." {
 		t.Fatalf("nested formatter failed: got %#v", items[0])
 	}
 }

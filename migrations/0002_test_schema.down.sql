@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS project_members;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS contragent_addresses;
+DROP TABLE IF EXISTS contragents;
+DROP TABLE IF EXISTS addresses;
+DROP TABLE IF EXISTS person_contacts;
+DROP TABLE IF EXISTS contacts;
+DROP TABLE IF EXISTS employees;
+DROP TABLE IF EXISTS departments;
+DROP TABLE IF EXISTS person_profiles;
+DROP TABLE IF EXISTS people;
+DROP TABLE IF EXISTS organizations;
+DROP TABLE IF EXISTS areas;
+DROP TABLE IF EXISTS countries;

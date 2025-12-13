@@ -1,0 +1,45 @@
+table: projects
+relations:
+  organization:
+    type: belongs_to
+    model: Organization
+  members:
+    type: has_many
+    model: ProjectMember
+  persons:
+    type: has_many
+    model: Person
+    through: ProjectMember
+    order: .last_name ASC, .first_name ASC
+  owner:
+    type: has_one
+    model: Person
+    through: ProjectMember
+    through_where: .role = 'Owner'
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: organization_id
+        type: int
+      - source: name
+        type: string
+  with_owner:
+    extends: item
+    fields:
+      - source: owner
+        type: preset
+        preset: item          # тянем person.item (там уже есть full_name)
+      - source: "{name} — {owner.full_name}"
+        alias: label
+        type: formatter
+  with_members:
+    extends: item
+    fields:
+      - source: persons
+        type: preset
+        preset: item
+      - source: "{name} — {persons[0].full_name}"
+        alias: label
+        type: formatter      

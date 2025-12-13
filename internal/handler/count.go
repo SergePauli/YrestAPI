@@ -73,10 +73,5 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	// Успех: JSON-ответ
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
-
-	// temporary solution to flush alias maps
-	if err := model.FlushAliasMaps(r.Context()); err != nil {
-		log.Println("❌ Flush failed: " + err.Error())
-		// уже отправили 200 и тело — просто залогируем
-	}
+	
 }
