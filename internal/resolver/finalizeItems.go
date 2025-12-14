@@ -21,8 +21,10 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	
 	// 1 посчитать все formatter'ы до удаления internal
 	if err := applyAllFormatters(m, p, items, ""); err != nil {
-		return err
+		return err	
 	}
+	
+	// локализация
 	if model.HasLocales {
 		applyLocalization(m, p, items) // или locale из запроса
 	}
@@ -323,7 +325,7 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 	}
 
 	// ---------- 2) Выполнение форматтеров текущего уровня ----------
-	for node := head; node != nil; node = node.Next {
+	for node := head; node != nil; node = node.Next {		
 		f := node.F
 		switch f.Type {
 
@@ -335,7 +337,7 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 				ctx[target] = applyFormatter(tpl, ctx)
 			}
 
-		case "preset":
+		case "preset":			
 			if strings.TrimSpace(f.Formatter) == "" {
 				continue
 			}
@@ -343,7 +345,6 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			// если его нет — fallback на alias-ветку (на случай когда данные действительно под alias).
 			childPrefixSrc := prefixFor(prefix, f.Source)
 			childPrefixAli := prefixFor(prefix, fieldKey(f))
-
 			for i := range items {
 				parent := getCtx(items[i], prefix)
 
@@ -352,14 +353,11 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 					child = m
 				} else if m, ok := getMapAt(items[i], childPrefixAli); ok {
 					child = m
-				}
-
+				} 
 				if child != nil {
 					parent[f.Alias] = applyFormatter(f.Formatter, child)
-				} else {
-					parent[f.Alias] = ""
 				}
-			}
+			}			
 		}
 	}
 
