@@ -3,6 +3,7 @@
 /tmp/
 /db/
 /cfg/
+.cache/
 *.exe
 *.exe~
 *.dll
