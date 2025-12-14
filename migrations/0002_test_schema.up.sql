@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS contragents (
   name        TEXT NOT NULL UNIQUE
 );
 
+-- Организации контрагентов (для теста formatters/presets)
+CREATE TABLE IF NOT EXISTS contragent_organizations (
+  id             SERIAL PRIMARY KEY,
+  contragent_id  INT NOT NULL REFERENCES contragents(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,
+  used           BOOLEAN NOT NULL DEFAULT true,
+  created_at     TIMESTAMP DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS contragent_addresses (
   contragent_id INT NOT NULL REFERENCES contragents(id) ON DELETE CASCADE,
   address_id    INT NOT NULL REFERENCES addresses(id) ON DELETE CASCADE,

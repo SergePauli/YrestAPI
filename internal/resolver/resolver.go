@@ -245,10 +245,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	
     
 	// 8) финализация formatter/computed уже ПОСЛЕ склейки
+	//log.Printf("Resolver: items with tails: %+v", items)
 	if err := finalizeItems(m, preset, items); err != nil {
 			return nil, fmt.Errorf("resolver: finalize: %w", err)
 	}
-    log.Printf("Resolver: final items: %+v", items)
+    
 	// 9) for Through: развернём вложенные preset-поля
 	if req.PresetObj != nil && req.UnwrapField != "" {
     // fk ты уже знаешь (это Source первого поля синтетического пресета)

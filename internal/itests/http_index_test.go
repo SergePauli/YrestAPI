@@ -122,6 +122,172 @@ func Test_Index_Employee_Item_Pagination(t *testing.T) {
 	t.Logf("✅ /api/index returned correct paging & preset for Employee/item, ids=%v", gotIDs)
 }
 
+// /api/index: Contragent, preset=item, offset beyond dataset should return empty page
+func Test_Index_Contragent_Item_EmptyPage(t *testing.T) {
+	if testBaseURL == "" || httpSrv == nil {
+		t.Fatal("bootstrap not ready: HTTP server/baseURL missing")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var total int
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM contragents`).Scan(&total); err != nil {
+		t.Fatalf("failed to count contragents: %v", err)
+	}
+
+	payload := map[string]any{
+		"model":  "Contragent",
+		"preset": "item",
+		"offset": total + 50, // явно за границами тестовых данных
+		"limit":  5,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest(http.MethodPost, testBaseURL+"/api/index", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/index failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 OK, got %d. body=%s", resp.StatusCode, string(b))
+	}
+
+	var raw any
+	b, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatalf("invalid JSON response: %v; body=%s", err, string(b))
+	}
+
+	items, err := extractItemsArray(raw)
+	if err != nil {
+		t.Fatalf("extract items failed: %v; body=%s", err, string(b))
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty page for big offset, got %d items; body=%s", len(items), string(b))
+	}
+
+	t.Logf("✅ /api/index Contragent/item returns empty array for offset beyond dataset (count=%d)", total)
+}
+
+// /api/index: Contragent, preset=item, formatter pulls name from contragent_organization
+func Test_Index_Contragent_Item_NameFormatter_FromOrganization(t *testing.T) {
+	if testBaseURL == "" || httpSrv == nil {
+		t.Fatal("bootstrap not ready: HTTP server/baseURL missing")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	type row struct {
+		ID   int
+		Name string
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT c.id, co.name
+		FROM contragents c
+		LEFT JOIN LATERAL (
+			SELECT name
+			FROM contragent_organizations co
+			WHERE co.contragent_id = c.id AND co.used = true
+			ORDER BY co.id DESC
+			LIMIT 1
+		) co ON true
+		ORDER BY c.id ASC
+		LIMIT 2`)
+	if err != nil {
+		t.Fatalf("db query failed: %v", err)
+	}
+	defer rows.Close()
+
+	var want []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.ID, &r.Name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		want = append(want, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
+	}
+	if len(want) == 0 {
+		t.Skip("no contragents in test DB")
+	}
+
+	payload := map[string]any{
+		"model":  "Contragent",
+		"preset": "item",
+		"sorts":  []string{"id ASC"},
+		"offset": 0,
+		"limit":  len(want),
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest(http.MethodPost, testBaseURL+"/api/index", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/index failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 OK, got %d. body=%s", resp.StatusCode, string(b))
+	}
+
+	var raw any
+	b, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatalf("invalid JSON response: %v; body=%s", err, string(b))
+	}
+
+	items, err := extractItemsArray(raw)
+	if err != nil {
+		t.Fatalf("extract items failed: %v; body=%s", err, string(b))
+	}
+	if len(items) != len(want) {
+		t.Fatalf("expected %d items, got %d; body=%s", len(want), len(items), string(b))
+	}
+
+	for i, it := range items {
+		var gotID int
+		switch v := it["id"].(type) {
+		case float64:
+			gotID = int(v)
+		case int:
+			gotID = v
+		default:
+			t.Fatalf("item[%d]: unexpected id type %T; item=%#v", i, it["id"], it)
+		}
+		if gotID != want[i].ID {
+			t.Fatalf("item[%d]: id mismatch: got %d want %d; item=%#v", i, gotID, want[i].ID, it)
+		}
+		name, _ := it["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			t.Fatalf("item[%d]: empty name from formatter; item=%#v", i, it)
+		}
+		if name != want[i].Name {
+			t.Fatalf("item[%d]: name mismatch: got %q want %q; item=%#v", i, name, want[i].Name, it)
+		}
+	}
+
+	t.Logf("✅ Contragent/item formatter pulls name from contragent_organization (ids=%v)", []int{want[0].ID})
+}
+
 // Гибкая распаковка: поддерживает {data:[...]}, {rows:[...]}, {items:[...]}, либо топ-левел массив
 func extractItemsArray(raw any) ([]map[string]any, error) {
 	// { data: [...] } / { rows: [...] } / { items: [...] }

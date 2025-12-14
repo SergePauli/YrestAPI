@@ -71,6 +71,13 @@ INSERT INTO contragents (id, name) VALUES
   (301,'Pacific Trading')
 ON CONFLICT DO NOTHING;
 
+-- Организации контрагентов (используются в пресете Contragent.head)
+INSERT INTO contragent_organizations (id, contragent_id, name, used) VALUES
+  (1,300,'Innotech JSC HQ', true),
+  (2,300,'Innotech JSC Alt', false), -- unused
+  (3,301,'Pacific Trading LLC', true)
+ON CONFLICT DO NOTHING;
+
 -- N:N contragent↔address (через)
 INSERT INTO contragent_addresses (contragent_id, address_id) VALUES
   (300,501),

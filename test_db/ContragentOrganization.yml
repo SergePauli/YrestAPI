@@ -1,0 +1,16 @@
+table: contragent_organizations
+relations:
+  contragent:
+    type: belongs_to
+    model: Contragent
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: contragent_id
+        type: int
+      - source: name
+        type: string
+      - source: used
+        type: bool

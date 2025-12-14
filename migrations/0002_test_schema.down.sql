@@ -1,6 +1,7 @@
 DROP TABLE IF EXISTS project_members;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS contragent_addresses;
+DROP TABLE IF EXISTS contragent_organizations;
 DROP TABLE IF EXISTS contragents;
 DROP TABLE IF EXISTS addresses;
 DROP TABLE IF EXISTS person_contacts;

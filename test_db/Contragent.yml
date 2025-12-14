@@ -7,10 +7,24 @@ relations:
   contragent_addresses:
     type: has_many
     model: ContragentAddress
+  contragent_organizations:
+    type: has_many
+    model: ContragentOrganization
+  contragent_organization:
+    type: has_one
+    model: ContragentOrganization
+    where: ".used = true"
+    order: "id DESC"
 presets:
-  item:
+  head:
     fields:
       - source: id
         type: int
-      - source: name
-        type: string
+      - source: contragent_organization
+        formatter: "{name}"
+        type: preset
+        preset: item
+        alias: name
+  item:
+    extends: head
+    fields:
