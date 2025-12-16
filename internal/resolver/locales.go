@@ -18,27 +18,41 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 	for _, f := range p.Fields {
 		if !f.Localize {
 			continue
-		}		
+		}
+		key := f.Alias
+		if key == "" {
+			key = f.Source
+		}
+		srcKey := f.Source
+
 		for i := range items {
-			if v, ok := items[i][f.Alias]; ok {
-				strVal := fmt.Sprintf("%v", v)
-				// ищем в словаре начиная с глубины: model → preset → field
-				if translated, ok := model.ActiveDict[modelName].Lookup(presetName, f.Alias, strVal); ok {
-					items[i][f.Alias] = translated
-					continue
-				}
-				// пробуем глобальный пресет
-				if translated, ok := model.ActiveDict[presetName].Lookup( f.Alias, strVal); ok {
-					items[i][f.Alias] = translated
-					continue
-				}
-				// пробуем глобальное поле
-				if translated, ok := model.ActiveDict[f.Alias].Lookup( strVal); ok {
-					items[i][f.Alias] = translated
-					continue
-				}
-				
+			v, ok := items[i][key]
+			if !ok && key != srcKey {
+				v, ok = items[i][srcKey]
 			}
+			if !ok {
+				continue
+			}
+
+			strVal := fmt.Sprintf("%v", v)
+			// ищем в словаре начиная с глубины: model → preset → field
+			if translated, ok := model.ActiveDict[modelName].Lookup(presetName, key, strVal); ok {
+				items[i][key] = translated
+				continue
+			}
+			// пробуем глобальный пресет
+			if translated, ok := model.ActiveDict[presetName].Lookup(key, strVal); ok {
+				items[i][key] = translated
+				continue
+			}
+			// пробуем глобальное поле
+			if translated, ok := model.ActiveDict[key].Lookup(strVal); ok {
+				items[i][key] = translated
+				continue
+			}
+
+			// если перевода нет — хотя бы продублируем исходное значение в алиас
+			items[i][key] = strVal
 		}
 	}
 }

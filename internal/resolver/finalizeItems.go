@@ -19,15 +19,20 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	// 0 удаляем префиксы alias'ов у preset-полей belongs_to
 	//stripPresetPrefixes(m, p, items, "")
 	
-	// 1 посчитать все formatter'ы до удаления internal
-	if err := applyAllFormatters(m, p, items, ""); err != nil {
-		return err	
-	}
+	// 0.5 применяем алиасы для простых полей (заменяем source ключ на alias)
+	applyFieldAliases(p, items)
 	
 	// локализация
 	if model.HasLocales {
 		applyLocalization(m, p, items) // или locale из запроса
 	}
+	
+	// 1 посчитать все formatter'ы до удаления internal
+	if err := applyAllFormatters(m, p, items, ""); err != nil {
+		return err	
+	}
+	
+	
 	// 2) собрать маркеры internal: префиксы-деревья и точные ключи
 	var (
 		prefixes []string // удалить всё, что key == prefix или начинается с "prefix."
@@ -65,6 +70,34 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	}
 	
 	return nil
+}
+
+// applyFieldAliases переносит значения из исходных ключей в alias и удаляет source.
+// Работает только для плоских полей текущего пресета (не preset/formatter).
+func applyFieldAliases(p *model.DataPreset, items []map[string]any) {
+	if p == nil || len(items) == 0 {
+		return
+	}
+	for _, f := range p.Fields {
+		if f.Type == "preset" || f.Type == "formatter" {
+			continue
+		}
+		if f.Alias == "" || f.Alias == f.Source {
+			continue
+		}
+		src := f.Source
+		dst := f.Alias
+		for i := range items {
+			if _, ok := items[i][dst]; ok {
+				// уже есть конечный ключ — не трогаем
+				continue
+			}
+			if v, ok := items[i][src]; ok {
+				items[i][dst] = v
+				delete(items[i], src)
+			}
+		}
+	}
 }
 
 // --- helpers: recursive delete for dotted paths & prefixes ---
