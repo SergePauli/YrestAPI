@@ -41,6 +41,14 @@ go run main.go
 ## 🌐 Localization of strings and constants
 
 - Dictionaries live in `cfg/locales/<locale>.yml`; the active locale is loaded into a tree structure.
+- Date/time formats can be customized per locale via `layoutSettings`:
+  ```yaml
+  layoutSettings:
+    date: "02.01.2006"
+    ttime: "15:04:05"
+    datetime: "02.01.2006 15:04:05"
+  ```
+  These layouts are used when `localize: true` is set on fields with `type: date`, `time`, or `datetime`.
 - Lookup order: `model → preset → field`, then falls back to a global preset and a global field; if nothing is found, the original value is returned.
 - To localize a field set `localize: true`; for numeric codes set `type: int` — numeric keys are normalized (int/int64/uint32, etc.) and matched in the dictionary as numbers.
 - Sample dictionary:
