@@ -4,8 +4,10 @@ import (
 	"YrestAPI/internal/model"
 	"log"
 	"math"
+	"time"
 )
-func toIntKey(v any) (int, bool) {	
+
+func toIntKey(v any) (int, bool) {
 	switch x := v.(type) {
 	case int:
 		return x, true
@@ -46,6 +48,34 @@ func toIntKey(v any) (int, bool) {
 
 	return 0, false
 }
+
+// formatTemporal formats time/date/datetime values according to locale layouts.
+func formatTemporal(kind string, v any) (string, bool) {
+	var t time.Time
+	switch x := v.(type) {
+	case time.Time:
+		t = x
+	case *time.Time:
+		if x == nil {
+			return "", false
+		}
+		t = *x
+	default:
+		return "", false
+	}
+
+	switch kind {
+	case "date":
+		return t.Format(model.ActiveLayouts.Date), true
+	case "time":
+		return t.Format(model.ActiveLayouts.Time), true
+	case "datetime":
+		return t.Format(model.ActiveLayouts.DateTime), true
+	default:
+		return "", false
+	}
+}
+
 // applyLocalization проходит по полям пресета и заменяет значения через словарь
 func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]any) {
 	if model.ActiveDict == nil || len(items) == 0 || p == nil {
@@ -74,6 +104,14 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 				continue
 			}
 
+			// locale-based formatting for temporal fields
+			if f.Localize && (f.Type == "date" || f.Type == "time" || f.Type == "datetime") {
+				if formatted, ok := formatTemporal(f.Type, v); ok {
+					items[i][key] = formatted
+					continue
+				}
+			}
+
 			// ищем в словаре начиная с глубины: model → preset → field
 			if translated, ok := model.ActiveDict[modelName].Lookup(presetName, key, v); ok {
 				items[i][key] = translated
@@ -84,7 +122,7 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 				items[i][key] = translated
 				continue
 			}
-			// пробуем глобальное поле	
+			// пробуем глобальное поле
 			if f.Type == "int" {
 				if k, ok := toIntKey(v); ok {
 					log.Printf("applyLocalization: looking up int key %d in field %s\n", k, key)
@@ -93,7 +131,7 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 						continue
 					}
 				}
-			}	else if translated, ok := model.ActiveDict[key].Lookup(v); ok {
+			} else if translated, ok := model.ActiveDict[key].Lookup(v); ok {
 				items[i][key] = translated
 				continue
 			}
