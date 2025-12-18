@@ -71,7 +71,11 @@ func detectJoinsRecursive(
 		}
 
 		rel, ok := m.Relations[relName]
-		if !ok || rel._ModelRef == nil {
+		if !ok || (rel._ModelRef == nil && !rel.Polymorphic) {
+			continue
+		}
+		if rel.Polymorphic {
+			// joins для полиморфных связей не строим
 			continue
 		}
 

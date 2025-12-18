@@ -69,14 +69,19 @@ func dfsPresetWithPolicy(modelName, presetName string, pathNodes, pathModels []s
 			)
 		}
 		switch rel.Type {
-			case "has_one", "has_many", "belongs_to":
-    		// ok
-			default:
-    		return fmt.Errorf(
-        "field %q in %s.%s refers to relation %q of unsupported type %q (allowed: has_one, has_many, belongs_to)",
-        fieldNameForMsg(f), modelName, presetName, f.Source, rel.Type,
-				)
-	}
+		case "has_one", "has_many", "belongs_to":
+			// ok
+		default:
+			return fmt.Errorf(
+				"field %q in %s.%s refers to relation %q of unsupported type %q (allowed: has_one, has_many, belongs_to)",
+				fieldNameForMsg(f), modelName, presetName, f.Source, rel.Type,
+			)
+		}
+
+		if rel.Polymorphic {
+			// Полиморфные belongs_to не валидируем по Registry — целевая модель определяется по *_type
+			continue
+		}
 
 		// 3) определить целевую модель/пресет
 		nestedModelName := rel.Model
@@ -145,7 +150,6 @@ func fieldNameForMsg(f Field) string {
 	}
 	return "<unnamed>"
 }
-
 
 func cloneCounts(m map[string]int) map[string]int {
 	cp := make(map[string]int, len(m))

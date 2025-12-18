@@ -9,19 +9,29 @@ import (
 	"unicode"
 )
 
+var formatterSrcRe = regexp.MustCompile(`\{[^}]+\}`)
 
-var formatterSrcRe = regexp.MustCompile(`\{[^}]+\}`)	
 func LinkModelRelations() error {
 	for modelName, model := range Registry {
 		// 1. Link & validate relations
 		for relName, rel := range model.Relations {
-			// Модель должна существовать
-			targetModel, ok := Registry[rel.Model]
-			if !ok {
-				return fmt.Errorf("invalid relation: model '%s' not found in '%s.%s'",
-					rel.Model, modelName, relName)
+			if rel.Polymorphic {
+				if rel.Type != "belongs_to" {
+					return fmt.Errorf("invalid relation: polymorphic allowed only for belongs_to (%s.%s)", modelName, relName)
+				}
+				if rel.TypeColumn == "" {
+					rel.TypeColumn = relName + "_type"
+				}
+				// FK/PK fallbacks below
+			} else {
+				// Модель должна существовать
+				targetModel, ok := Registry[rel.Model]
+				if !ok {
+					return fmt.Errorf("invalid relation: model '%s' not found in '%s.%s'",
+						rel.Model, modelName, relName)
+				}
+				rel._ModelRef = targetModel
 			}
-			rel._ModelRef = targetModel
 
 			// FK по умолчанию
 			if rel.FK == "" {
@@ -42,6 +52,9 @@ func LinkModelRelations() error {
 
 			// Проверка through
 			if rel.Through != "" {
+				if rel.Polymorphic {
+					return fmt.Errorf("polymorphic relation '%s.%s' cannot use through", modelName, relName)
+				}
 				throughModel, ok := Registry[rel.Through]
 				if !ok {
 					return fmt.Errorf("invalid through: model '%s' not found in '%s.%s'",
@@ -68,6 +81,9 @@ func LinkModelRelations() error {
 				return fmt.Errorf("relation '%s.%s' has invalid type '%s' (must be has_many, has_one, belongs_to)",
 					modelName, relName, rel.Type)
 			}
+			if rel.Type == "belongs_to" && rel.Polymorphic && rel.PK == "" {
+				rel.PK = "id"
+			}
 
 			model.Relations[relName] = rel
 		}
@@ -82,18 +98,17 @@ func LinkModelRelations() error {
 			preset.Name = presetName
 			// Проверяем каждое поле
 			for fi := range preset.Fields {
-				f := &preset.Fields[fi]		
-						
-					
+				f := &preset.Fields[fi]
+
 				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter" — ошибка.
 				isFormatterSrc := formatterSrcRe.MatchString(f.Source)
 				if isFormatterSrc && f.Type != "formatter" {
 					return fmt.Errorf(
 						"field '%s' in preset '%s' of model '%s' uses template-like source '%s' but its type is '%s'; expected type 'formatter'",
-					f.Alias, presetName, modelName, f.Source, f.Type,
+						f.Alias, presetName, modelName, f.Source, f.Type,
 					)
-				} else if (isFormatterSrc) {	
-				// 2.1) Если поле — formatter → алиас обязателен	
+				} else if isFormatterSrc {
+					// 2.1) Если поле — formatter → алиас обязателен
 					if strings.TrimSpace(f.Alias) == "" {
 						return fmt.Errorf(
 							"formatter field with source '%s' in preset '%s' of model '%s' must have explicit alias",
@@ -101,7 +116,9 @@ func LinkModelRelations() error {
 						)
 					}
 				}
-				if (f.Alias == "") {f.Alias = f.Source}
+				if f.Alias == "" {
+					f.Alias = f.Source
+				}
 				fieldName := f.Alias
 				// Проверка preset-полей
 				if f.Type == "preset" {
@@ -120,20 +137,24 @@ func LinkModelRelations() error {
 
 					// 2.3 У relation должен быть целевой modelRef
 					nestedModel := rel._ModelRef
-					if nestedModel == nil {
-						return fmt.Errorf("field '%s' in preset '%s' refers to relation '%s' with nil model in '%s'",
-							fieldName, presetName, f.Source, modelName)
-					}
+					if rel.Polymorphic {
+						// пропускаем проверку наличия preset в конкретной модели — определяется на этапе резолва
+						f._PresetRef = nil
+					} else {
+						if nestedModel == nil {
+							return fmt.Errorf("field '%s' in preset '%s' refers to relation '%s' with nil model in '%s'",
+								fieldName, presetName, f.Source, modelName)
+						}
+						// 2.4 nested_preset должен существовать в целевой модели
+						nestedPreset := nestedModel.Presets[f.NestedPreset]
+						if nestedPreset == nil {
+							return fmt.Errorf("nested preset '%s' not found in model '%s' (referenced from '%s.%s')",
+								f.NestedPreset, nestedModel.Table, modelName, presetName)
+						}
 
-					// 2.4 nested_preset должен существовать в целевой модели
-					nestedPreset := nestedModel.Presets[f.NestedPreset]
-					if nestedPreset == nil {
-						return fmt.Errorf("nested preset '%s' not found in model '%s' (referenced from '%s.%s')",
-							f.NestedPreset, nestedModel.Table, modelName, presetName)
+						// Линкуем
+						f._PresetRef = nestedPreset
 					}
-
-					// Линкуем
-					f._PresetRef = nestedPreset
 				}
 			}
 		}
@@ -141,9 +162,7 @@ func LinkModelRelations() error {
 	return nil
 }
 
-
-
-func FindPresetByName(model *Model,name string) *DataPreset {	
+func FindPresetByName(model *Model, name string) *DataPreset {
 
 	preset, ok := model.Presets[name]
 	if !ok {

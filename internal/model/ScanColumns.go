@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ScanColumns формирует список колонок для SELECT:
@@ -42,6 +43,18 @@ func (m *Model) ScanColumns(preset *DataPreset, aliasMap *AliasMap, prefix strin
 			relKey := f.Source
 			rel, ok := m.Relations[relKey]
 			if !ok || rel == nil {
+				continue
+			}
+
+			if rel.Polymorphic {
+				parentAlias := aliasFor(prefix)
+				addCol(fmt.Sprintf("%s.%s", parentAlias, rel.FK), "int")
+				typeCol := rel.TypeColumn
+				if strings.TrimSpace(typeCol) == "" {
+					typeCol = relKey + "_type"
+				}
+				addCol(fmt.Sprintf("%s.%s", parentAlias, typeCol), "string")
+				// не строим вложенные JOIN-ы
 				continue
 			}
 

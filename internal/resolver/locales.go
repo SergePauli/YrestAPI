@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"YrestAPI/internal/model"
-	"log"
 	"math"
 	"time"
 )
@@ -124,8 +123,7 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 			}
 			// пробуем глобальное поле
 			if f.Type == "int" {
-				if k, ok := toIntKey(v); ok {
-					log.Printf("applyLocalization: looking up int key %d in field %s\n", k, key)
+				if k, ok := toIntKey(v); ok {					
 					if translated, ok := model.ActiveDict[key].Lookup(k); ok {
 						items[i][key] = translated
 						continue

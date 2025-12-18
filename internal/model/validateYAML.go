@@ -7,40 +7,42 @@ import (
 )
 
 // Разрешённые ключи для объектов
-var allowedModelKeys = map[string]bool{	
+var allowedModelKeys = map[string]bool{
 	"table":     true,
 	"relations": true,
 	"presets":   true,
 }
 
 var allowedRelationKeys = map[string]bool{
-	"model":   true,
-	"type":    true,
-	"fk":      true,
-	"pk":      true,
-	"table":   true,
-	"where":   true,
-	"order":   true,
-	"through": true,
+	"model":         true,
+	"type":          true,
+	"fk":            true,
+	"pk":            true,
+	"table":         true,
+	"where":         true,
+	"order":         true,
+	"through":       true,
 	"through_where": true,
-	"reentrant": true,
-	"max_depth": true,
+	"reentrant":     true,
+	"max_depth":     true,
+	"polymorphic":   true,
+	"type_column":   true,
 }
 
 var allowedPresetKeys = map[string]bool{
 	"extends": true,
-	"fields": true,
+	"fields":  true,
 }
 
-var allowedFieldKeys = map[string]bool{	
-	"source":        true,
-	"type":          true,
-	"alias":         true,	
-	"preset": 			 true,
-	"internal":      true,
-	"formatter":    true,
-	"localize":      true,
-	"max_depth":    true,
+var allowedFieldKeys = map[string]bool{
+	"source":    true,
+	"type":      true,
+	"alias":     true,
+	"preset":    true,
+	"internal":  true,
+	"formatter": true,
+	"localize":  true,
+	"max_depth": true,
 }
 
 // Разрешённые значения для type в полях
@@ -53,8 +55,8 @@ var allowedFieldTypeValues = map[string]bool{
 	"float":     true,
 	"time":      true,
 	"datetime":  true,
-	"date": 		 true,
-	"UUID":			 true,
+	"date":      true,
+	"UUID":      true,
 }
 
 func validateYAMLNode(node *yaml.Node, context string) error {
