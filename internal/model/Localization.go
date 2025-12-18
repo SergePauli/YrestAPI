@@ -18,11 +18,11 @@ var ActiveLocale string
 // LocaleNode универсальный узел словаря
 type LocaleNode struct {
     Value string
-    Children  map[string]*LocaleNode
+    Children  map[any]*LocaleNode
 }
 
 // Глобальный словарь для активной локали
-var ActiveDict = map[string]*LocaleNode{}
+var ActiveDict = map[any]*LocaleNode{}
 
 // LoadLocales загружает словари из cfg/locales/*.yml
 func LoadLocales(locale string) error {
@@ -34,7 +34,7 @@ func LoadLocales(locale string) error {
         return fmt.Errorf("⚠️ cannot read locale file %s: %w", path, err)
     }
 
-    var raw map[string]any
+    var raw map[any]any
     if err := yaml.Unmarshal(data, &raw); err != nil {
         return fmt.Errorf("⚠️ unmarshal locale error in %s: %w", path, err)
     }
@@ -45,24 +45,40 @@ func LoadLocales(locale string) error {
 }
 
 // parseNodeMap рекурсивно строит словарь
-func parseNodeMap(raw map[string]any) map[string]*LocaleNode {
-    result := make(map[string]*LocaleNode)
+func parseNodeMap(raw map[any]any) map[any]*LocaleNode {
+    result := make(map[any]*LocaleNode)
 
     for key, val := range raw {
-			
+        k := key
+
         switch v := val.(type) {
         case string:
-            result[key] = &LocaleNode{
+            result[k] = &LocaleNode{
                 Value: v,
             }
 						
         case map[string]any:
-            result[key] = &LocaleNode{
-                Children: parseNodeMap(v),
+            mv := make(map[any]any, len(v))
+            for kk, vv := range v {
+                mv[kk] = vv
             }
+            result[k] = &LocaleNode{Children: parseNodeMap(mv)}
+        case map[int]any:
+            mv := make(map[any]any, len(v))
+            for kk, vv := range v {                
+                mv[kk] = vv
+            }
+            result[k] = &LocaleNode{Children: parseNodeMap(mv)}    
+        
+        case map[interface{}]interface{}:
+            mv := make(map[any]any, len(v))
+            for kk, vv := range v {
+                mv[kk] = vv
+            }
+            result[k] = &LocaleNode{Children: parseNodeMap(mv)}
 						
         default:
-            result[key] = &LocaleNode{
+            result[k] = &LocaleNode{
                 Value: fmt.Sprintf("%v", v),
             }
 						
@@ -93,7 +109,7 @@ func Translate(path ...string) string {
     }
     return path[len(path)-1]
 }
-func  (n *LocaleNode) Lookup(keys ...string) (string, bool) {
+func  (n *LocaleNode) Lookup(keys ...any) (string, bool) {
 	if n == nil {
     return "", false
   }

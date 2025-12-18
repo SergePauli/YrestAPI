@@ -4,6 +4,7 @@
 /db/
 /cfg/
 .cache/
+.gocache/
 *.exe
 *.exe~
 *.dll
