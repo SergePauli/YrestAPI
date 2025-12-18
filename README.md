@@ -1,50 +1,77 @@
 # YrestAPI
 
-
-**YrestAPI** — это декларативный REST API движок на Go, построенный поверх PostgreSQL, с поддержкой Redis-кэширования и параллельной загрузки `has_`-связей.  
-Полностью конфигурируется через YAML — без единой строки бизнес-логики в коде.
-
----
-
-## 🔧 Особенности
-
-- 📁 **Декларативная настройка через YAML** — модели, связи, пресеты
-- ⚡ **Высокая производительность** — благодаря Go и конкурентной обработке
-- 🚀 **Кэширование с Redis** — ускорение вложенных и повторяющихся запросов
-- 🔁 **Поддержка `has_many`, `has_one`, `belongs_to`, `through`**
-- 🧩 **Вложенные пресеты** — JSON-структура любых уровней вложенности
-- 🔎 **Фильтрация, сортировка, пагинация**
-- 🛠️ **Форматирование полей** — с помощью шаблонов в YAML
-- 🔐 **Готово к продакшену** — без фреймворков, только `Go`, `pgx`, `Redis`
+**YrestAPI** is a declarative REST API engine in Go, built on PostgreSQL with Redis caching and parallel loading of `has_` relations.  
+Everything is configured via YAML — no business logic in code.
 
 ---
 
-## 🧩 Для каких случаев подходит YrestAPI
+## 🔧 Features
 
-YrestAPI будет особенно полезен в следующих ситуациях:
-
-- 🗃 **У вас уже есть PostgreSQL-база данных**, и нужно **быстро развернуть JSON API** без написания серверной логики.
-- ⚙️ **Нужен микросервис только для чтения (`index`/`list`) данных**, с вложенными связями и фильтрацией.
-- 🐢 **Существующий API на Python, Ruby, Node.js** работает медленно для сложных выборок, и вы хотите ускорить только часть `index`-операций.
-- 🧪 **Быстрая разработка прототипов**, где нет времени писать SQL/ORM-код.
-- 🧵 **Разделение слоёв**: YrestAPI может быть частью гибридной архитектуры, отдавая данные, которые затем обрабатываются фронтендом или BFF.
+- 📁 **Declarative YAML config** — models, relations, presets
+- ⚡ **High performance** — Go + concurrent processing
+- 🚀 **Redis caching** — speeds up nested and repeated queries
+- 🔁 **`has_many`, `has_one`, `belongs_to`, `through` support**
+- 🧩 **Nested presets** — JSON of arbitrary depth
+- 🔎 **Filtering, sorting, pagination**
+- 🛠️ **Field formatters** — template-based formatting in YAML
+- 🔐 **Production-ready** — plain `Go`, `pgx`, `Redis`
 
 ---
 
-## ⚙️ Быстрый старт
+## 🧩 When YrestAPI fits
+
+- 🗃 **You already have PostgreSQL** and need to **spin up a JSON API fast** with zero server code.
+- ⚙️ **Read-only microservice (`index`/`list`)** with nested relations and filters.
+- 🐢 Existing API in Python/Ruby/Node is slow for complex selects and you want to offload `index` operations.
+- 🧪 **Rapid prototyping** when there is no time to write SQL/ORM code.
+- 🧵 **Layer separation**: YrestAPI can be a data provider consumed by frontend/BFF.
+
+---
+
+## ⚙️ Quick start
 
 ```bash
 git clone https://github.com/your-org/yrestapi
 cd yrestapi
 go run main.go
 ```
+
 ---
 
-## 1. Синтаксис `where`, `through_where`
+## 🌐 Localization of strings and constants
 
-- **`.` (точка)** в начале условия заменяется на **уникальный алиас** соответствующей связи в SQL.
+- Dictionaries live in `cfg/locales/<locale>.yml`; the active locale is loaded into a tree structure.
+- Lookup order: `model → preset → field`, then falls back to a global preset and a global field; if nothing is found, the original value is returned.
+- To localize a field set `localize: true`; for numeric codes set `type: int` — numeric keys are normalized (int/int64/uint32, etc.) and matched in the dictionary as numbers.
+- Sample dictionary:
+  ```yaml
+  Person:
+    list:
+      status:
+        0: "Inactive"
+        1: "Active"
+    gender:
+      male: "Male"
+      female: "Female"
+  ```
+- Sample fields:
+  ```yaml
+  fields:
+    - source: status
+      type: int
+      localize: true  # numeric codes from DB map to strings from the dictionary
+    - source: gender
+      type: string
+      localize: true
+  ```
 
-- **Пример YAML:**
+---
+
+## 1. Syntax of `where`, `through_where`
+
+- A leading **`.` (dot)** in a condition is replaced with the **unique SQL alias** of that relation.
+
+- **YAML example:**
   ```yaml
   relations:
     phone:
@@ -54,7 +81,7 @@ go run main.go
       where: .type = 'Phone'
       through_where: .used = true
   ```
-- **Результат SQL:**
+- **SQL result:**
   ```sql
   LEFT JOIN person_contacts AS pc 
   ON (main.id = pc.person_id) 
@@ -64,21 +91,22 @@ go run main.go
   ON (pc.contact_id = c.id) 
   AND (c.type = 'Phone')
   ```
-- **Назначение:**
+- **Purpose:**
 
-  **where** — фильтры для конечной таблицы связи.
-  **through_where** — фильтры для промежуточной таблицы при through-связях.
-  ---
-## 2. Formatter — post-processing of preset fields
-
-Formatters transform or combine field values **after** the SQL query and after merging related data.  
-They are useful when you want to **collapse a nested preset into a string** or build a computed text field.
-Formatters provide a mini-language for building computed fields inside presets.  
-They allow you to combine values from multiple fields, apply character slicing, and add conditional logic.
+  **where** — filters for the final relation table.  
+  **through_where** — filters for the intermediate table in through-relations.
 
 ---
 
-###  Syntax
+## 2. Formatter — post-processing of preset fields
+
+Formatters transform or combine field values **after** the SQL query and after merging related data.  
+They are useful when you want to **collapse a nested preset into a string** or build a computed text field.  
+Formatters are a mini-language for computed fields, allowing value composition, character slicing, and conditionals.
+
+---
+
+### Syntax
 
 #### 1. Inline computed field
 ```yaml
@@ -98,7 +126,7 @@ They allow you to combine values from multiple fields, apply character slicing, 
 
 ---
 
-###  Token rules
+### Token rules
 Inside `{ ... }` you can use:
 - **Fields**: `{field}`
 - **Nested fields**: `{relation.field}`
@@ -108,7 +136,7 @@ Inside `{ ... }` you can use:
 
 ---
 
-###  Behaviour by relation type
+### Behaviour by relation type
 | Relation type  | Result of formatter |
 |----------------|--------------------|
 | `belongs_to`   | String from related object |
@@ -118,7 +146,7 @@ Inside `{ ... }` you can use:
 
 ---
 
-###  Example
+### Example
 ```yaml
 presets:
   card:
@@ -141,7 +169,7 @@ presets:
 [
   {
     "id": 64,
-    "name": "Иванов А В",
+    "name": "Ivanov A V",
     "contacts": [
       "Phone: +7 923 331 49 55",
       "Email: example@mail.com"
@@ -149,7 +177,8 @@ presets:
   }
 ]
 ```
-#### 3.Ternary operators
+
+#### 3. Ternary operators
 **Syntax:**
 ```yaml
   {? <condition> ? <then> : <else>}
@@ -174,46 +203,50 @@ presets:
 **Examples:**
   ```yaml
   - source: `{? used ? "+" : "-"}`
-  type: formatter
-  alias: used_flag
+    type: formatter
+    alias: used_flag
 # true  → "+"
 # false → "-"
 
-- source: `{? age >= 18 ? "adult" : "minor"}`
-  type: formatter
-  alias: age_group
+  - source: `{? age >= 18 ? "adult" : "minor"}`
+    type: formatter
+    alias: age_group
 # age=20 → "adult"
 # age=15 → "minor"
 
-- source: `{? status == "ok" ? "✔" : "✖"}`
-  type: formatter
-  alias: status_icon
+  - source: `{? status == "ok" ? "✔" : "✖"}`
+    type: formatter
+    alias: status_icon
 ```
+
 ### Nested ternaries
-  Ternary expressions can be nested:
-  ```yaml
-  - source: `{? used ? "{? age >= 18 ? "adult" : "minor"}" : "-"}`
+Ternary expressions can be nested:
+```yaml
+- source: `{? used ? "{? age >= 18 ? "adult" : "minor"}" : "-"}`
   type: formatter
   alias: nested_example
 # used=false        → "-"
 # used=true, age=20 → "adult"
 # used=true, age=15 → "minor"
 ```
+
 ### Combining with substitutions
-  Formatters can combine conditional logic and substitutions:
-  ```yaml
-  - source: '{? used ? "+" : "-"} {naming.surname} {naming.name}[0].'
+Formatters can combine conditional logic and substitutions:
+```yaml
+- source: '{? used ? "+" : "-"} {naming.surname} {naming.name}[0].'
   type: formatter
   alias: short_name
 # used=true  → "+ Ivanov I."
 # used=false → "- Ivanov I."
 ```
-### 📌 Notes:
 
-  - Fields with type: formatter must always define an alias.
+### 📌 Notes
 
-  - Formatter fields are not included in SQL queries. They are resolved only at the     post-processing stage.
+- Fields with `type: formatter` must always define an alias.
+- Formatter fields are not included in SQL queries. They are resolved only at the post-processing stage.
+
 ---  
+
 ### Multiple preset inheritance
 
 You can inherit from multiple presets using a comma-separated list:
@@ -246,3 +279,4 @@ presets:
       - source: item_only
         type: string
         alias: item_only
+```
