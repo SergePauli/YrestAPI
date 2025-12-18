@@ -75,6 +75,22 @@ go run main.go
 
 ---
 
+## 🔀 Polymorphic relations
+
+- Declare a polymorphic `belongs_to` by setting `polymorphic: true` and `model: "*"`. Example (`db/Audit.yml`):
+  ```yaml
+  relations:
+    auditable:
+      model: "*"
+      type: belongs_to
+      polymorphic: true
+  ```
+- The parent table must have `<relation>_id` and `<relation>_type` columns (override type column with `type_column` if needed).
+- Resolver batches child queries by type: for each distinct `<relation>_type` it issues one query to the target model using the provided nested preset.
+- In presets, refer to the polymorphic relation like a normal `preset` field; nested preset name must exist on each target model.
+
+---
+
 ## 1. Syntax of `where`, `through_where`
 
 - A leading **`.` (dot)** in a condition is replaced with the **unique SQL alias** of that relation.
