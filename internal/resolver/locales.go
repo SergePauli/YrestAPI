@@ -93,6 +93,10 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 			key = f.Source
 		}
 		srcKey := f.Source
+		keys := []string{key}
+		if srcKey != "" && srcKey != key {
+			keys = append(keys, srcKey)
+		}
 
 		for i := range items {
 			v, ok := items[i][key]
@@ -111,31 +115,34 @@ func applyLocalization(m *model.Model, p *model.DataPreset, items []map[string]a
 				}
 			}
 
-			// ищем в словаре начиная с глубины: model → preset → field
-			if translated, ok := model.ActiveDict[modelName].Lookup(presetName, key, v); ok {
-				items[i][key] = translated
-				continue
-			}
-			// пробуем глобальный пресет
-			if translated, ok := model.ActiveDict[presetName].Lookup(key, v); ok {
-				items[i][key] = translated
-				continue
-			}
-			// пробуем глобальное поле
-			if f.Type == "int" {
-				if k, ok := toIntKey(v); ok {					
-					if translated, ok := model.ActiveDict[key].Lookup(k); ok {
-						items[i][key] = translated
-						continue
-					}
+			for _, lookupKey := range keys {
+				// ищем в словаре начиная с глубины: model → preset → field
+				if translated, ok := model.ActiveDict[modelName].Lookup(presetName, lookupKey, v); ok {
+					items[i][key] = translated
+					goto localized
 				}
-			} else if translated, ok := model.ActiveDict[key].Lookup(v); ok {
-				items[i][key] = translated
-				continue
+				// пробуем глобальный пресет
+				if translated, ok := model.ActiveDict[presetName].Lookup(lookupKey, v); ok {
+					items[i][key] = translated
+					goto localized
+				}
+				// пробуем глобальное поле
+				if f.Type == "int" {
+					if k, ok := toIntKey(v); ok {
+						if translated, ok := model.ActiveDict[lookupKey].Lookup(k); ok {
+							items[i][key] = translated
+							goto localized
+						}
+					}
+				} else if translated, ok := model.ActiveDict[lookupKey].Lookup(v); ok {
+					items[i][key] = translated
+					goto localized
+				}
 			}
 
 			// если перевода нет — оставляем как есть
 			items[i][key] = v
+		localized:
 		}
 	}
 }

@@ -109,3 +109,49 @@ func TestApplyLocalization_FormatsTemporalFieldsByLocale(t *testing.T) {
 		t.Fatalf("start_time got %v", got)
 	}
 }
+
+func TestApplyLocalization_UsesAliasAndSourceKeys(t *testing.T) {
+	origDict := model.ActiveDict
+	origRegistry := model.Registry
+	t.Cleanup(func() {
+		model.ActiveDict = origDict
+		model.Registry = origRegistry
+	})
+
+	model.ActiveDict = map[any]*model.LocaleNode{
+		"Audit": {
+			Children: map[any]*model.LocaleNode{
+				"card": {
+					Children: map[any]*model.LocaleNode{
+						"auditable_type": {
+							Children: map[any]*model.LocaleNode{
+								"Person": {Value: "ФЛ"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	preset := &model.DataPreset{
+		Name: "card",
+		Fields: []model.Field{
+			{Type: "string", Source: "auditable_type", Alias: "where", Localize: true},
+		},
+	}
+	m := &model.Model{
+		Presets: map[string]*model.DataPreset{"card": preset},
+	}
+	model.Registry = map[string]*model.Model{"Audit": m}
+
+	items := []map[string]any{
+		{"where": "Person"},
+	}
+
+	applyLocalization(m, preset, items)
+
+	if got := items[0]["where"]; got != "ФЛ" {
+		t.Fatalf("alias lookup failed, got %v", got)
+	}
+}
