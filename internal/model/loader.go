@@ -42,7 +42,11 @@ func LoadModelsFromDir(dir string) error {
 			return fmt.Errorf("unmarshal error in %s: %w", path, err)
 		}
 
-		//2.1 
+		if err := applyTemplateIncludes(dir, &model); err != nil {
+			return fmt.Errorf("include error in %s: %w", path, err)
+		}
+
+		//2.1
 		if err := resolvePresetInheritance(&model); err != nil {
 			return fmt.Errorf("inheritance error: %w", err)
 		}
@@ -56,9 +60,146 @@ func LoadModelsFromDir(dir string) error {
 	return nil
 }
 
+// applyTemplateIncludes merges relations/presets from template files located in dir/templates.
+// Model fields override template fields; preset fields from the model override/extend template preset fields.
+func applyTemplateIncludes(baseDir string, m *Model) error {
+	if m == nil || len(m.Includes) == 0 {
+		return nil
+	}
+
+	tplDir := filepath.Join(baseDir, "templates")
+	mergeFields := func(dst []Field, src []Field) []Field {
+		keyOf := func(f Field) string {
+			if strings.TrimSpace(f.Alias) != "" {
+				return f.Alias
+			}
+			return f.Source
+		}
+		index := make(map[string]int, len(dst))
+		for i := range dst {
+			index[keyOf(dst[i])] = i
+		}
+		for _, f := range src {
+			k := keyOf(f)
+			if pos, ok := index[k]; ok {
+				dst[pos] = f
+			} else {
+				index[k] = len(dst)
+				dst = append(dst, f)
+			}
+		}
+		return dst
+	}
+
+	mergeRelation := func(dst, src *ModelRelation) {
+		if dst == nil || src == nil {
+			return
+		}
+		if dst.Type == "" {
+			dst.Type = src.Type
+		}
+		if dst.Model == "" {
+			dst.Model = src.Model
+		}
+		if dst.Table == "" {
+			dst.Table = src.Table
+		}
+		if dst.FK == "" {
+			dst.FK = src.FK
+		}
+		if dst.PK == "" {
+			dst.PK = src.PK
+		}
+		if dst.Through == "" {
+			dst.Through = src.Through
+		}
+		if dst.Where == "" {
+			dst.Where = src.Where
+		}
+		if dst.ThroughWhere == "" {
+			dst.ThroughWhere = src.ThroughWhere
+		}
+		if dst.Order == "" {
+			dst.Order = src.Order
+		}
+		if !dst.Reentrant {
+			dst.Reentrant = src.Reentrant
+		}
+		if dst.MaxDepth == 0 {
+			dst.MaxDepth = src.MaxDepth
+		}
+		if !dst.Polymorphic {
+			dst.Polymorphic = src.Polymorphic
+		}
+		if dst.TypeColumn == "" {
+			dst.TypeColumn = src.TypeColumn
+		}
+	}
+
+	for _, inc := range m.Includes {
+		tplPath := filepath.Join(tplDir, inc+".yml")
+		data, err := os.ReadFile(tplPath)
+		if err != nil {
+			return fmt.Errorf("read template %s: %w", tplPath, err)
+		}
+		var node yaml.Node
+		if err := yaml.Unmarshal(data, &node); err != nil {
+			return fmt.Errorf("parse template %s: %w", tplPath, err)
+		}
+		if len(node.Content) == 0 {
+			return fmt.Errorf("template %s is empty", tplPath)
+		}
+		if err := validateYAMLNode(node.Content[0], "model"); err != nil {
+			return fmt.Errorf("template validation %s: %w", tplPath, err)
+		}
+		var tpl Model
+		if err := node.Decode(&tpl); err != nil {
+			return fmt.Errorf("unmarshal template %s: %w", tplPath, err)
+		}
+		if err := resolvePresetInheritance(&tpl); err != nil {
+			return fmt.Errorf("inheritance in template %s: %w", tplPath, err)
+		}
+
+		// merge relations: model wins on conflicts; missing fields can be filled from template
+		if tpl.Relations != nil {
+			if m.Relations == nil {
+				m.Relations = map[string]*ModelRelation{}
+			}
+			for k, v := range tpl.Relations {
+				if existing, exists := m.Relations[k]; !exists {
+					cp := *v
+					m.Relations[k] = &cp
+				} else {
+					mergeRelation(existing, v)
+				}
+			}
+		}
+
+		// merge presets
+		if tpl.Presets != nil {
+			if m.Presets == nil {
+				m.Presets = map[string]*DataPreset{}
+			}
+			for name, tp := range tpl.Presets {
+				if existing, ok := m.Presets[name]; ok {
+					existing.Fields = mergeFields(tp.Fields, existing.Fields)
+					m.Presets[name] = existing
+				} else {
+					// copy to avoid sharing template struct
+					cp := *tp
+					m.Presets[name] = &cp
+				}
+			}
+		}
+	}
+
+	return nil
+}
 
 // resolvePresetInheritance поддерживает множественное наследование:
-//   extends: "base, head"
+//
+//	extends: "base, head"
+//
 // Родители применяются слева направо: поля первого родителя добавляются первыми,
 // последующие родители переопределяют совпадающие поля, но НЕ меняют их позицию.
 // Затем применяются локальные поля пресета — тоже с переопределением и сохранением позиции.
@@ -168,6 +309,3 @@ func resolvePresetInheritance(m *Model) error {
 	}
 	return nil
 }
-
-
-

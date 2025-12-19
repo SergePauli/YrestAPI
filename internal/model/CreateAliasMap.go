@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 )
@@ -13,8 +12,6 @@ func (m *Model) CreateAliasMap(model *Model, preset *DataPreset, filters map[str
 	aliasMap, err := BuildAliasMap(m, preset, filters, sorts)
 	if err != nil {
 		return nil, fmt.Errorf("build alias map failed: %w", err)
-	} else {
-		log.Printf("Alias map for model '%s' built successfully", model.Name)
 	}
 	return aliasMap, nil
 }

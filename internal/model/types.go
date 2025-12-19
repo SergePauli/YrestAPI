@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // Model описывает структуру модели в конфигурации
 type Model struct {
 	Name        string                    `yaml:"-"` // logical name of the model
@@ -7,7 +9,30 @@ type Model struct {
 	Relations   map[string]*ModelRelation `yaml:"relations"`
 	Presets     map[string]*DataPreset    `yaml:"presets"`
 	PrimaryKeys []string                  `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
+	Includes    StringList                `yaml:"include"`
+}
 
+// StringList unmarshals either a single string or a list of strings.
+type StringList []string
+
+func (s *StringList) UnmarshalYAML(unmarshal func(any) error) error {
+	var one string
+	if err := unmarshal(&one); err == nil {
+		if strings.TrimSpace(one) != "" {
+			*s = append(*s, one)
+		}
+		return nil
+	}
+	var many []string
+	if err := unmarshal(&many); err == nil {
+		for _, v := range many {
+			if strings.TrimSpace(v) != "" {
+				*s = append(*s, v)
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 // ModelRelation описывает связь между моделями в конфигурации

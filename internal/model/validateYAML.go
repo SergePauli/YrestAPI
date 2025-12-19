@@ -7,10 +7,11 @@ import (
 )
 
 // Разрешённые ключи для объектов
-var allowedModelKeys = map[string]bool{
+var allowedModelKeys = map[string]bool{	
 	"table":     true,
 	"relations": true,
 	"presets":   true,
+	"include":   true,
 }
 
 var allowedRelationKeys = map[string]bool{
