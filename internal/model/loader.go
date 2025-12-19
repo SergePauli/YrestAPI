@@ -69,6 +69,15 @@ func applyTemplateIncludes(baseDir string, m *Model) error {
 
 	tplDir := filepath.Join(baseDir, "templates")
 	mergeFields := func(dst []Field, src []Field) []Field {
+		filtered := make([]Field, 0, len(dst))
+		for _, f := range dst {
+			if strings.TrimSpace(f.Alias) == "skip" {
+				continue
+			}
+			filtered = append(filtered, f)
+		}
+		dst = filtered
+
 		keyOf := func(f Field) string {
 			if strings.TrimSpace(f.Alias) != "" {
 				return f.Alias
@@ -80,6 +89,9 @@ func applyTemplateIncludes(baseDir string, m *Model) error {
 			index[keyOf(dst[i])] = i
 		}
 		for _, f := range src {
+			if strings.TrimSpace(f.Alias) == "skip" {
+				continue
+			}
 			k := keyOf(f)
 			if pos, ok := index[k]; ok {
 				dst[pos] = f

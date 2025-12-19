@@ -28,6 +28,9 @@ presets:
         type: int
       - source: template_field
         type: string
+      - source: skip_me
+        type: string
+        alias: skip
 `
 	if err := os.WriteFile(filepath.Join(dir, "templates", "shared.yml"), []byte(template), 0o644); err != nil {
 		t.Fatalf("write template: %v", err)
@@ -75,7 +78,7 @@ presets:
 		t.Fatalf("preset item missing")
 	}
 	if len(p.Fields) != 4 {
-		t.Fatalf("expected 4 fields after merge, got %d", len(p.Fields))
+		t.Fatalf("expected 4 fields after merge (template skip filtered), got %d", len(p.Fields))
 	}
 	foundOverride := false
 	for _, f := range p.Fields {
