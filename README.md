@@ -269,7 +269,21 @@ Formatters can combine conditional logic and substitutions:
 - Fields with `type: formatter` must always define an alias.
 - Formatter fields are not included in SQL queries. They are resolved only at the post-processing stage.
 
----  
+---
+
+## 🧭 Nested fields (copying nested data up)
+
+- Use `type: nested_field` with a path in `{...}` to lift nested data into the current preset without SQL joins.
+- Example:
+  ```yaml
+  - source: "{person.contacts}"
+    type: nested_field
+    alias: contacts
+  ```
+  The `contacts` array from the nested `person` branch will be copied to the current item, even if `person` itself is not exposed in the response.
+- Works for arrays or scalars; alias is optional (defaults to the source path).
+
+---
 
 ### Multiple preset inheritance
 
