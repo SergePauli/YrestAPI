@@ -18,27 +18,26 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	}
 	// 0 удаляем префиксы alias'ов у preset-полей belongs_to
 	//stripPresetPrefixes(m, p, items, "")
-	
+
 	// 0.5 применяем алиасы для простых полей (заменяем source ключ на alias)
 	applyFieldAliases(p, items)
-	
+
 	// локализация
 	if model.HasLocales {
 		applyLocalization(m, p, items) // или locale из запроса
 	}
-	
+
 	// 1 посчитать все formatter'ы до удаления internal
 	if err := applyAllFormatters(m, p, items, ""); err != nil {
-		return err	
+		return err
 	}
-	
-	
+
 	// 2) собрать маркеры internal: префиксы-деревья и точные ключи
 	var (
 		prefixes []string // удалить всё, что key == prefix или начинается с "prefix."
 		exacts   []string // удалить ровно этот ключ
 	)
-	
+
 	collectInternalMarkers(m, p, "", &prefixes, &exacts)
 
 	// 3) удалить
@@ -46,10 +45,10 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 		return nil
 	}
 	for i := range items {
-		
+
 		// точные ключи
-		for _, k := range exacts {			
-			deleteExactPath(items[i], k)		
+		for _, k := range exacts {
+			deleteExactPath(items[i], k)
 		}
 		// удаления поддеревьев (person, members, members.contact)
 		for _, pref := range prefixes {
@@ -66,9 +65,9 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 				}
 			}
 		}
-		
+
 	}
-	
+
 	return nil
 }
 
@@ -184,20 +183,19 @@ func deletePrefix(root map[string]any, prefix string) {
 	walk(root, root, 0, "")
 }
 
-
 // синтетический пресет для through-модели (одно поле ведёт к конечной модели)
 func makeThroughSyntheticPreset(unwrapKey, finalPresetName string) *model.DataPreset {
-		return &model.DataPreset{
-			Fields: []model.Field{
-				{
-					Type:         "preset",
-					Source:       unwrapKey,
-					Alias:        unwrapKey,
-					NestedPreset: finalPresetName,
-				},
+	return &model.DataPreset{
+		Fields: []model.Field{
+			{
+				Type:         "preset",
+				Source:       unwrapKey,
+				Alias:        unwrapKey,
+				NestedPreset: finalPresetName,
 			},
-		}
+		},
 	}
+}
 
 func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) error {
 	// ---------- helpers ----------
@@ -266,11 +264,32 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 	}
 
 	var head *formatterNode
+	getValueAtPath := func(root map[string]any, path string) (any, bool) {
+		cur := any(root)
+		for _, seg := range strings.Split(path, ".") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			mm, ok := cur.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			cur, ok = mm[seg]
+			if !ok {
+				return nil, false
+			}
+		}
+		return cur, true
+	}
 
 	// ---------- 1) Подготовительный проход ----------
 	for _, f := range p.Fields {
 		if f.Type != "preset" {
 			if f.Type == "formatter" {
+				pf := &f
+				head = insertByDeps(head, &formatterNode{Alias: f.Alias, F: pf})
+			} else if f.Type == "nested_field" {
 				pf := &f
 				head = insertByDeps(head, &formatterNode{Alias: f.Alias, F: pf})
 			}
@@ -358,7 +377,7 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 	}
 
 	// ---------- 2) Выполнение форматтеров текущего уровня ----------
-	for node := head; node != nil; node = node.Next {		
+	for node := head; node != nil; node = node.Next {
 		f := node.F
 		switch f.Type {
 
@@ -370,7 +389,26 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 				ctx[target] = applyFormatter(tpl, ctx)
 			}
 
-		case "preset":			
+		case "nested_field":
+			path := strings.TrimSpace(f.Source)
+			if strings.HasPrefix(path, "{") && strings.HasSuffix(path, "}") && len(path) >= 2 {
+				path = strings.TrimSpace(path[1 : len(path)-1])
+			}
+			if path == "" {
+				continue
+			}
+			targetKey := f.Alias
+			if strings.TrimSpace(targetKey) == "" {
+				targetKey = path
+			}
+			for i := range items {
+				if val, ok := getValueAtPath(items[i], path); ok {
+					ctx := getCtx(items[i], prefix)
+					ctx[targetKey] = val
+				}
+			}
+
+		case "preset":
 			if strings.TrimSpace(f.Formatter) == "" {
 				continue
 			}
@@ -386,17 +424,16 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 					child = m
 				} else if m, ok := getMapAt(items[i], childPrefixAli); ok {
 					child = m
-				} 
+				}
 				if child != nil {
 					parent[f.Alias] = applyFormatter(f.Formatter, child)
 				}
-			}			
+			}
 		}
 	}
 
 	return nil
 }
-
 
 // удалить префиксы alias'ов у preset-полей belongs_to
 
@@ -406,11 +443,13 @@ func prefixFor(base string, relKey string) string {
 	}
 	return base + "." + relKey
 }
+
 type formatterNode struct {
-	F      *model.Field
-	Alias  string
-	Next   *formatterNode
+	F     *model.Field
+	Alias string
+	Next  *formatterNode
 }
+
 func insertByDeps(head *formatterNode, node *formatterNode) *formatterNode {
 	if head == nil {
 		return node
@@ -418,7 +457,7 @@ func insertByDeps(head *formatterNode, node *formatterNode) *formatterNode {
 	var lastMatch *formatterNode
 	for cur := head; cur != nil; cur = cur.Next {
 		if (node.F.Source != "" && strings.Contains(node.F.Source, cur.Alias)) ||
-		   (node.F.Formatter != "" && strings.Contains(node.F.Formatter, cur.Alias)) {
+			(node.F.Formatter != "" && strings.Contains(node.F.Formatter, cur.Alias)) {
 			lastMatch = cur
 		}
 	}
@@ -437,69 +476,72 @@ func insertByDeps(head *formatterNode, node *formatterNode) *formatterNode {
 // - prefixes: для preset/internal — удалить всё поддерево по пути "<prefix>.<relKey>"
 // - exacts:   для простых полей/internal — удалить ровно "<prefix>.<field>"
 func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, prefixes *[]string, exacts *[]string) {
-    for _, f := range p.Fields {
-        if f.Type == "preset" {
-            relKey := f.Source
-            rel, ok := m.Relations[relKey]
-            if !ok || rel == nil {
-                continue
-            }
-            curPath := relKey
-            if prefix != "" {
-                curPath = prefix + "." + relKey
-            }
+	for _, f := range p.Fields {
+		if f.Type == "preset" {
+			relKey := f.Source
+			rel, ok := m.Relations[relKey]
+			if !ok || rel == nil {
+				continue
+			}
+			curPath := relKey
+			if prefix != "" {
+				curPath = prefix + "." + relKey
+			}
 
-            if f.Internal {
-                *prefixes = append(*prefixes, curPath)
-            }
+			if f.Internal {
+				*prefixes = append(*prefixes, curPath)
+			}
 
-            // belongs_to — как раньше
-            if rel.Type == "belongs_to" && rel.GetModelRef() != nil {
-                nestedModel := rel.GetModelRef()
-                var nested *model.DataPreset
-                if f.NestedPreset != "" {
-                    nested = nestedModel.Presets[f.NestedPreset]
-                }
-                if nested != nil {
-                    collectInternalMarkers(nestedModel, nested, curPath, prefixes, exacts)
-                }
-            }
+			// belongs_to — как раньше
+			if rel.Type == "belongs_to" && rel.GetModelRef() != nil {
+				nestedModel := rel.GetModelRef()
+				var nested *model.DataPreset
+				if f.NestedPreset != "" {
+					nested = nestedModel.Presets[f.NestedPreset]
+				}
+				if nested != nil {
+					collectInternalMarkers(nestedModel, nested, curPath, prefixes, exacts)
+				}
+			}
 
-           // through — рекурсивно зайдём в синтетический пресет промежуточной модели
-           if rel.Through != "" && rel.GetThroughRef() != nil && rel.GetModelRef() != nil {
-               through := rel.GetThroughRef()
-               final   := rel.GetModelRef()
-               unwrapKey := ""
-               for k, r2 := range through.Relations {
-                   if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == final {
-                       unwrapKey = k
-                       break
-                   }
-               }
-               if unwrapKey != "" {
-                   finalPresetName := f.NestedPreset
-                   if finalPresetName == "" {
-                       if _, ok := final.Presets["item"]; ok { finalPresetName = "item" }
-                   }
-                   syn := makeThroughSyntheticPreset(unwrapKey, finalPresetName)
-                   collectInternalMarkers(through, syn, curPath, prefixes, exacts)
-               }
-           }
-           continue
-        }
+			// through — рекурсивно зайдём в синтетический пресет промежуточной модели
+			if rel.Through != "" && rel.GetThroughRef() != nil && rel.GetModelRef() != nil {
+				through := rel.GetThroughRef()
+				final := rel.GetModelRef()
+				unwrapKey := ""
+				for k, r2 := range through.Relations {
+					if r2 != nil && r2.Type == "belongs_to" && r2.GetModelRef() == final {
+						unwrapKey = k
+						break
+					}
+				}
+				if unwrapKey != "" {
+					finalPresetName := f.NestedPreset
+					if finalPresetName == "" {
+						if _, ok := final.Presets["item"]; ok {
+							finalPresetName = "item"
+						}
+					}
+					syn := makeThroughSyntheticPreset(unwrapKey, finalPresetName)
+					collectInternalMarkers(through, syn, curPath, prefixes, exacts)
+				}
+			}
+			continue
+		}
 
-        if f.Internal {
-            var key string
-            if prefix == "" { key = f.Source } else { key = prefix + "." + f.Source }
-            *exacts = append(*exacts, key)
-        }
-    }
+		if f.Internal {
+			var key string
+			if prefix == "" {
+				key = f.Source
+			} else {
+				key = prefix + "." + f.Source
+			}
+			*exacts = append(*exacts, key)
+		}
+	}
 }
 
-
-
 var reToken = regexp.MustCompile(`\{([a-zA-Z0-9_\.]+)\}(?:\[(\d+)(?:\.\.(\d+))?\])?`)
-
 
 // applyFormatter применяет тернарники, затем обычные токены
 func applyFormatter(fmtStr string, row map[string]any) string {
@@ -581,10 +623,10 @@ func replaceTernaries(s string, row map[string]any) string {
 						depth--
 						if depth == 0 {
 							// захватили весь блок тернарника
-							block := s[start : i] // без финальной '}'
+							block := s[start:i] // без финальной '}'
 							repl := evalTernaryBlock(block, row)
 							out.WriteString(repl)
-							i++ // съедаем '}'
+							i++       // съедаем '}'
 							goto cont // продолжить внешний цикл
 						}
 					}
@@ -667,233 +709,250 @@ func evalTernaryBlock(block string, row map[string]any) string {
 	return applyFormatter(chosen, row)
 }
 
-
 // снимет только внешние одинаковые кавычки '...' или "..."
 func unquoteIfQuoted(s string) string {
-    s = strings.TrimSpace(s)
-    if len(s) >= 2 {
-    if (s[0] == '"'  && s[len(s)-1] == '"') ||
-           (s[0] == '\'' && s[len(s)-1] == '\'') {
-            return s[1 : len(s)-1]
-        }
-    }
-    return s
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') ||
+			(s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 func isNullLiteral(s string) bool {
 	return strings.EqualFold(strings.TrimSpace(s), "null")
 }
 
 func getNested(m map[string]any, path string) any {
-    parts := strings.Split(path, ".")
-    var cur any = m
-    for _, p := range parts {
-        if mm, ok := cur.(map[string]any); ok {
-            cur = mm[p]
-        } else {
-            return nil
-        }
-    }
-    return cur
+	parts := strings.Split(path, ".")
+	var cur any = m
+	for _, p := range parts {
+		if mm, ok := cur.(map[string]any); ok {
+			cur = mm[p]
+		} else {
+			return nil
+		}
+	}
+	return cur
 }
 
 func evalCondition(cond string, row map[string]any) (bool, error) {
-    cond = strings.TrimSpace(cond)
-    if cond == "" {
-        return false, fmt.Errorf("empty condition")
-    }
+	cond = strings.TrimSpace(cond)
+	if cond == "" {
+		return false, fmt.Errorf("empty condition")
+	}
 
-    // 0) если cond не содержит операторов, значит это просто поле/путь
-    opRe := regexp.MustCompile(`\s*(==|=|!=|>=|<=|>|<)\s*`)
-    if !opRe.MatchString(cond) {        
-        val, ok := row[cond]
-        if !ok {
-            val = getNested(row, cond)
-        }
-        return isTruthy(val), nil
-    }    
-    // 1) обычный парсинг "<left> <op> <right>"
-    parts := opRe.Split(cond, 2)    
-    ops := opRe.FindStringSubmatch(cond)    
-    if len(parts) != 2 || len(ops) == 0 {
-        return false, fmt.Errorf("invalid condition: %q", cond)
-    }
-    left := strings.TrimSpace(parts[0])
-    right := strings.TrimSpace(parts[1])
-    op := ops[1]
-    if op == "=" {
-        op = "=="
-    }    
-    lv, ok := row[left]
-    if !ok {
-        lv = getNested(row, left)
-    }    
-    rv, err := parseLiteral(right)    
-    if err != nil {
-        return false, err
-    }    
-    return compareValues(lv, op, rv), nil
+	// 0) если cond не содержит операторов, значит это просто поле/путь
+	opRe := regexp.MustCompile(`\s*(==|=|!=|>=|<=|>|<)\s*`)
+	if !opRe.MatchString(cond) {
+		val, ok := row[cond]
+		if !ok {
+			val = getNested(row, cond)
+		}
+		return isTruthy(val), nil
+	}
+	// 1) обычный парсинг "<left> <op> <right>"
+	parts := opRe.Split(cond, 2)
+	ops := opRe.FindStringSubmatch(cond)
+	if len(parts) != 2 || len(ops) == 0 {
+		return false, fmt.Errorf("invalid condition: %q", cond)
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	op := ops[1]
+	if op == "=" {
+		op = "=="
+	}
+	lv, ok := row[left]
+	if !ok {
+		lv = getNested(row, left)
+	}
+	rv, err := parseLiteral(right)
+	if err != nil {
+		return false, err
+	}
+	return compareValues(lv, op, rv), nil
 }
 
 func isTruthy(v any) bool {
-    switch x := v.(type) {
-    case nil:
-        return false
-    case bool:
-        return x
-    case string:
-        return x != ""
-    case int, int32, int64, float32, float64:
-        n, ok := toNumber(x)
-        return ok && n != 0
-    default:
-        return true // любое другое значение считаем truthy
-    }
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case int, int32, int64, float32, float64:
+		n, ok := toNumber(x)
+		return ok && n != 0
+	default:
+		return true // любое другое значение считаем truthy
+	}
 }
 
-
-
 func parseLiteral(s string) (any, error) {
-    s = strings.TrimSpace(s)
-    if s == "null" {
-        return nil, nil
-    }
-    if s == "true" {
-        return true, nil
-    }
-    if s == "false" {
-        return false, nil
-    }
-     
-    // Строка в кавычках: "..." или '...'
-		if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') ||
-			(s[0] == '\'' && s[len(s)-1] == '\'')) {
-			return s[1 : len(s)-1], nil
-		}
-    // попробовать как число
-    if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-        return float64(i), nil
-    }
-    if f, err := strconv.ParseFloat(s, 64); err == nil {
-        return f, nil
-    }
-    // голое слово — трактуем как строку
-    return s, nil
+	s = strings.TrimSpace(s)
+	if s == "null" {
+		return nil, nil
+	}
+	if s == "true" {
+		return true, nil
+	}
+	if s == "false" {
+		return false, nil
+	}
+
+	// Строка в кавычках: "..." или '...'
+	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') ||
+		(s[0] == '\'' && s[len(s)-1] == '\'')) {
+		return s[1 : len(s)-1], nil
+	}
+	// попробовать как число
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return float64(i), nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f, nil
+	}
+	// голое слово — трактуем как строку
+	return s, nil
 }
 
 func toNumber(v any) (float64, bool) {
-    switch x := v.(type) {
-    case int: return float64(x), true
-    case int32: return float64(x), true
-    case int64: return float64(x), true
-    case float32: return float64(x), true
-    case float64: return x, true
-    case string:
-        if f, err := strconv.ParseFloat(x, 64); err == nil {
-            return f, true
-        }
-        return 0, false
-    default:
-        return 0, false
-    }
+	switch x := v.(type) {
+	case int:
+		return float64(x), true
+	case int32:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case float32:
+		return float64(x), true
+	case float64:
+		return x, true
+	case string:
+		if f, err := strconv.ParseFloat(x, 64); err == nil {
+			return f, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
 }
 
 func toString(v any) string {
-    switch x := v.(type) {
-    case nil:
-        return ""
-    case string:
-        return x
-    default:
-        return fmt.Sprintf("%v", x)
-    }
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	default:
+		return fmt.Sprintf("%v", x)
+	}
 }
 
 func compareValues(lv any, op string, rv any) bool {
-    // если оба приводимы к числу — числовое сравнение
-    if ln, lok := toNumber(lv); lok {
-        if rn, rok := toNumber(rv); rok {
-            switch op {
-            case "==": return ln == rn
-            case "!=": return ln != rn
-            case ">":  return ln > rn
-            case ">=": return ln >= rn
-            case "<":  return ln < rn
-            case "<=": return ln <= rn
-            }
-            return false
-        }
-    }    
-    // булево
-    if lb, lok := lv.(bool); lok {
-        if rb, rok := rv.(bool); rok {
-            switch op {
-            case "==": return lb == rb
-            case "!=": return lb != rb
-            default:   return false
-            }
-        }
-    }
-    
-    // строковое сравнение (лексикографическое для >,<)
-    ls := toString(lv)
-    rs := toString(rv)    
-    switch op {
-    case "==": return ls == rs
-    case "!=": return ls != rs
-    case ">":  return ls > rs
-    case ">=": return ls >= rs
-    case "<":  return ls < rs
-    case "<=": return ls <= rs
-    }    
-    
-    return false
+	// если оба приводимы к числу — числовое сравнение
+	if ln, lok := toNumber(lv); lok {
+		if rn, rok := toNumber(rv); rok {
+			switch op {
+			case "==":
+				return ln == rn
+			case "!=":
+				return ln != rn
+			case ">":
+				return ln > rn
+			case ">=":
+				return ln >= rn
+			case "<":
+				return ln < rn
+			case "<=":
+				return ln <= rn
+			}
+			return false
+		}
+	}
+	// булево
+	if lb, lok := lv.(bool); lok {
+		if rb, rok := rv.(bool); rok {
+			switch op {
+			case "==":
+				return lb == rb
+			case "!=":
+				return lb != rb
+			default:
+				return false
+			}
+		}
+	}
+
+	// строковое сравнение (лексикографическое для >,<)
+	ls := toString(lv)
+	rs := toString(rv)
+	switch op {
+	case "==":
+		return ls == rs
+	case "!=":
+		return ls != rs
+	case ">":
+		return ls > rs
+	case ">=":
+		return ls >= rs
+	case "<":
+		return ls < rs
+	case "<=":
+		return ls <= rs
+	}
+
+	return false
 }
 
 func stripPresetPrefixes(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) {
-    for _, f := range p.Fields {
-        if f.Type != "preset" {
-            continue
-        }
+	for _, f := range p.Fields {
+		if f.Type != "preset" {
+			continue
+		}
 
-        relKey := f.Source
-        rel, ok := m.Relations[relKey]
-        if !ok || rel == nil {
-            continue
-        }
+		relKey := f.Source
+		rel, ok := m.Relations[relKey]
+		if !ok || rel == nil {
+			continue
+		}
 
-        // Обрабатываем только belongs_to
-        if rel.Type != "belongs_to" {
-            continue
-        }
+		// Обрабатываем только belongs_to
+		if rel.Type != "belongs_to" {
+			continue
+		}
 
-        // Префикс в flat-ключах
-        curPrefix := relKey
-        if prefix != "" {
-            curPrefix = prefix + "." + relKey
-        }
+		// Префикс в flat-ключах
+		curPrefix := relKey
+		if prefix != "" {
+			curPrefix = prefix + "." + relKey
+		}
 
-        for _, row := range items {
-            sub := make(map[string]any)
-            for k, v := range row {
-                if strings.HasPrefix(k, curPrefix+".") {
-                    subKey := strings.TrimPrefix(k, curPrefix+".")
-                    sub[subKey] = v
-                    delete(row, k)
-                }
-            }
-            if len(sub) > 0 {
-                row[f.Alias] = sub
-            }
-        }
+		for _, row := range items {
+			sub := make(map[string]any)
+			for k, v := range row {
+				if strings.HasPrefix(k, curPrefix+".") {
+					subKey := strings.TrimPrefix(k, curPrefix+".")
+					sub[subKey] = v
+					delete(row, k)
+				}
+			}
+			if len(sub) > 0 {
+				row[f.Alias] = sub
+			}
+		}
 
-        // Рекурсивно спускаемся внутрь
-        nestedModel := rel.GetModelRef()
-        if nestedModel != nil && f.NestedPreset != "" {
-            if nested := nestedModel.Presets[f.NestedPreset]; nested != nil {
-                stripPresetPrefixes(nestedModel, nested, items, curPrefix)
-            }
-        }
-    }
+		// Рекурсивно спускаемся внутрь
+		nestedModel := rel.GetModelRef()
+		if nestedModel != nil && f.NestedPreset != "" {
+			if nested := nestedModel.Presets[f.NestedPreset]; nested != nil {
+				stripPresetPrefixes(nestedModel, nested, items, curPrefix)
+			}
+		}
+	}
 }
 
 func ApplyFormatterTestShim(fmtStr string, row map[string]any) string {

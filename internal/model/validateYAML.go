@@ -47,16 +47,17 @@ var allowedFieldKeys = map[string]bool{
 
 // Разрешённые значения для type в полях
 var allowedFieldTypeValues = map[string]bool{
-	"int":       true,
-	"string":    true,
-	"formatter": true,
-	"preset":    true,
-	"bool":      true,
-	"float":     true,
-	"time":      true,
-	"datetime":  true,
-	"date":      true,
-	"UUID":      true,
+	"int":          true,
+	"string":       true,
+	"formatter":    true,
+	"preset":       true,
+	"bool":         true,
+	"float":        true,
+	"time":         true,
+	"datetime":     true,
+	"date":         true,
+	"UUID":         true,
+	"nested_field": true,
 }
 
 func validateYAMLNode(node *yaml.Node, context string) error {
