@@ -100,14 +100,14 @@ func LinkModelRelations() error {
 			for fi := range preset.Fields {
 				f := &preset.Fields[fi]
 
-				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter" — ошибка.
+				// 2.0) Сначала: если Source похож на форматтер, а тип не "formatter"/"nested_field" — ошибка.
 				isFormatterSrc := formatterSrcRe.MatchString(f.Source)
-				if isFormatterSrc && f.Type != "formatter" {
+				if isFormatterSrc && f.Type != "formatter" && f.Type != "nested_field" {
 					return fmt.Errorf(
 						"field '%s' in preset '%s' of model '%s' uses template-like source '%s' but its type is '%s'; expected type 'formatter'",
 						f.Alias, presetName, modelName, f.Source, f.Type,
 					)
-				} else if isFormatterSrc {
+				} else if isFormatterSrc && f.Type == "formatter" {
 					// 2.1) Если поле — formatter → алиас обязателен
 					if strings.TrimSpace(f.Alias) == "" {
 						return fmt.Errorf(
