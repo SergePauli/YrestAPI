@@ -91,6 +91,17 @@ go run main.go
 
 ---
 
+## 🧱 Reusing templates with `include` and skipping fields
+
+- You can pull relations/presets from template files in `db/templates/*.yml` via:
+  ```yaml
+  include: shared_relations   # or [shared_relations, auditable]
+  ```
+- Relations from templates are added if missing; if a relation exists in the model, empty fields are filled from the template.
+- Presets from templates merge with model presets: template fields are applied first, then model fields override/extend by alias/source. Fields marked with `alias: skip` in templates are ignored.
+
+---
+
 ## 1. Syntax of `where`, `through_where`
 
 - A leading **`.` (dot)** in a condition is replaced with the **unique SQL alias** of that relation.
@@ -285,6 +296,8 @@ Formatters can combine conditional logic and substitutions:
 
 ---
 
+## 🧱 DRY for config files: inheritance, templates, nested fields
+
 ### Multiple preset inheritance
 
 You can inherit from multiple presets using a comma-separated list:
@@ -318,3 +331,20 @@ presets:
         type: string
         alias: item_only
 ```
+
+### Reusing templates with `include` and skipping fields
+
+- Pull relations/presets from `db/templates/*.yml` via `include: shared` (or list). Model overrides/fills template fields; empty relation fields (type/fk/etc.) are filled from the template.
+- Template preset fields are applied first, then model fields override/extend by alias/source. Fields marked with `alias: skip` in templates are ignored.
+
+### Nested fields (copying nested data up)
+
+- Use `type: nested_field` with a path in `{...}` to lift nested data into the current preset without SQL joins.
+- Example:
+  ```yaml
+  - source: "{person.contacts}"
+    type: nested_field
+    alias: contacts
+  ```
+  The `contacts` array from the nested `person` branch will be copied to the current item, even if `person` itself is not exposed in the response.
+- Works for arrays or scalars; alias is optional (defaults to the source path).
