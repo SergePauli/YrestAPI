@@ -480,9 +480,6 @@ func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, 
 		if f.Type == "preset" {
 			relKey := f.Source
 			rel, ok := m.Relations[relKey]
-			if !ok || rel == nil {
-				continue
-			}
 			curPath := relKey
 			if prefix != "" {
 				curPath = prefix + "." + relKey
@@ -490,6 +487,10 @@ func collectInternalMarkers(m *model.Model, p *model.DataPreset, prefix string, 
 
 			if f.Internal {
 				*prefixes = append(*prefixes, curPath)
+			}
+
+			if !ok || rel == nil {
+				continue
 			}
 
 			// belongs_to — как раньше
