@@ -18,8 +18,10 @@ type StringList []string
 func (s *StringList) UnmarshalYAML(unmarshal func(any) error) error {
 	var one string
 	if err := unmarshal(&one); err == nil {
-		if strings.TrimSpace(one) != "" {
-			*s = append(*s, one)
+		for _, p := range strings.Split(one, ",") {
+			if strings.TrimSpace(p) != "" {
+				*s = append(*s, strings.TrimSpace(p))
+			}
 		}
 		return nil
 	}
