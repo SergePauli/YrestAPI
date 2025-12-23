@@ -86,7 +86,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 		seen := make(idSet)
 		ids := make([]any, 0, len(items))
 		for _, it := range items {
-			if v, ok := it[pkName]; ok && v != nil {
+			ctx := getTargetContext(it, t.TargetPath)
+			if ctx == nil {
+				continue
+			}
+			if v, ok := ctx[pkName]; ok && v != nil {
 				if _, exists := seen[v]; !exists {
 					seen[v] = struct{}{}
 					ids = append(ids, v)
@@ -105,12 +109,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	var rerr error
 
 	for _, t := range tails {
+		t := t // avoid capturing loop variable in goroutine
 		ids := parentIDsByTail[t.FieldAlias]
 		if len(ids) == 0 {
 			continue
 		}
 		wg.Add(1)
-		go func() {
+		go func(ids []any) {
 			defer wg.Done()
 
 			childModel := t.Rel.GetModelRef()
@@ -189,7 +194,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 			mu.Lock()
 			groupedByAlias[t.FieldAlias] = g
 			mu.Unlock()
-		}()
+		}(ids)
 	}
 
 	wg.Wait()
@@ -200,27 +205,14 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	// 5) Собираем итоговые элементы, склеивая хвосты по алиасам
 	for i := range items {
 		for _, t := range tails {
-			pid := items[i][t.Rel.PK]
+			ctx := getTargetContext(items[i], t.TargetPath)
+			if ctx == nil {
+				continue
+			}
+			pid := ctx[t.Rel.PK]
 
 			// Определяем целевой контекст для записи: либо указанный TargetPath, либо корень item
-			target := items[i]
-			if tp := strings.TrimSpace(t.TargetPath); tp != "" {
-				for _, seg := range strings.Split(tp, ".") {
-					seg = strings.TrimSpace(seg)
-					if seg == "" {
-						continue
-					}
-					if v, ok := target[seg]; ok {
-						if m, ok := v.(map[string]any); ok {
-							target = m
-							continue
-						}
-					}
-					m := map[string]any{}
-					target[seg] = m
-					target = m
-				}
-			}
+			target := ensureTargetContext(items[i], t.TargetPath)
 
 			// Получаем группы дочерних записей
 			var groups []map[string]any
@@ -501,6 +493,55 @@ func collectTails(m *model.Model, p *model.DataPreset, prefix string) []TailSpec
 		}
 	}
 	return out
+}
+
+// getTargetContext returns the nested map by targetPath or the root item if path is empty.
+// Returns nil if any segment is missing or not a map.
+func getTargetContext(item map[string]any, targetPath string) map[string]any {
+	if strings.TrimSpace(targetPath) == "" {
+		return item
+	}
+	ctx := item
+	for _, seg := range strings.Split(targetPath, ".") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		v, ok := ctx[seg]
+		if !ok {
+			return nil
+		}
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		ctx = m
+	}
+	return ctx
+}
+
+// ensureTargetContext walks/creates nested maps for targetPath and returns the map.
+func ensureTargetContext(item map[string]any, targetPath string) map[string]any {
+	if strings.TrimSpace(targetPath) == "" {
+		return item
+	}
+	target := item
+	for _, seg := range strings.Split(targetPath, ".") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		if v, ok := target[seg]; ok {
+			if m, ok := v.(map[string]any); ok {
+				target = m
+				continue
+			}
+		}
+		m := map[string]any{}
+		target[seg] = m
+		target = m
+	}
+	return target
 }
 
 // req.UnwrapField: например, "contact"
