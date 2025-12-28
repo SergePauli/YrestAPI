@@ -6,7 +6,7 @@ import (
 	"github.com/Masterminds/squirrel"
 )
 
-func (m *Model) BuildCountQuery(aliasMap *AliasMap, filters map[string]interface{}) (squirrel.SelectBuilder, error) {
+func (m *Model) BuildCountQuery(aliasMap *AliasMap, preset *DataPreset, filters map[string]interface{}) (squirrel.SelectBuilder, error) {
 	sb := squirrel.SelectBuilder{}.PlaceholderFormat(squirrel.Dollar)
 	sb = sb.From(fmt.Sprintf("%s AS main", m.Table))
 
@@ -14,21 +14,21 @@ func (m *Model) BuildCountQuery(aliasMap *AliasMap, filters map[string]interface
 	for key := range filters {
 		filterKeys = append(filterKeys, key)
 	}
+	compPaths := collectComputablePathsForRequest(m, preset, filters, nil)
 	// Определим, какие JOIN-ы нужны — на основе ключей в filters
-	requiredJoins, err := m.DetectJoins(aliasMap, filterKeys, nil, nil)
+	requiredJoins, err := m.DetectJoins(aliasMap, filterKeys, nil, compPaths)
 	if err != nil {
 		return sb, err
 	}
-	
 
 	hasDistinct := false
 	for i := 0; i < len(requiredJoins); i++ {
-    join := requiredJoins[i]  
+		join := requiredJoins[i]
 		onClause := join.On
-    if join.Where != "" {
-        onClause = fmt.Sprintf("(%s) AND (%s)", join.On, join.Where)
-    }
-		sb = sb.LeftJoin(fmt.Sprintf("%s AS %s ON %s", join.Table, join.Alias, onClause ))
+		if join.Where != "" {
+			onClause = fmt.Sprintf("(%s) AND (%s)", join.On, join.Where)
+		}
+		sb = sb.LeftJoin(fmt.Sprintf("%s AS %s ON %s", join.Table, join.Alias, onClause))
 		if join.Distinct {
 			hasDistinct = true
 		}
@@ -40,7 +40,7 @@ func (m *Model) BuildCountQuery(aliasMap *AliasMap, filters map[string]interface
 		sb = sb.Column("COUNT(*)")
 	}
 
-	wherePart, err := m.buildWhereClause(aliasMap, filters, requiredJoins)
+	wherePart, err := m.buildWhereClause(aliasMap, preset, filters, requiredJoins)
 	if err != nil {
 		return sb, err
 	}

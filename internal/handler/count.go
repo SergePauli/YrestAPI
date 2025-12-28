@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"YrestAPI/internal/db"
 	"YrestAPI/internal/model"
@@ -12,7 +13,8 @@ import (
 
 type CountRequest struct {
 	Model   string                 `json:"model"`
-	Filters map[string]interface{} `json:"filters"`	
+	Preset  string                 `json:"preset"`
+	Filters map[string]interface{} `json:"filters"`
 }
 
 // CountHandler обрабатывает запросы на подсчет количества записей
@@ -36,17 +38,25 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var preset *model.DataPreset
+	if strings.TrimSpace(req.Preset) != "" {
+		preset = m.Presets[req.Preset]
+		if preset == nil {
+			http.Error(w, fmt.Sprintf("Preset %s not found", req.Preset), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Получаем карту алиасов из Redis или строим на лету
-	aliasMap, err := m.CreateAliasMap(m, nil, req.Filters, nil);
+	aliasMap, err := m.CreateAliasMap(m, preset, req.Filters, nil)
 	if err != nil {
 		// БЫЛО: fmt.Sprintf("alias map error: %w", err) — НЕЛЬЗЯ
 		http.Error(w, "alias map error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
 
 	// Строим SQL-запрос для подсчета записей
-	query, err := m.BuildCountQuery(aliasMap, req.Filters)
+	query, err := m.BuildCountQuery(aliasMap, preset, req.Filters)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Query error: %v", err), http.StatusInternalServerError)
 		return
@@ -73,5 +83,5 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	// Успех: JSON-ответ
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
-	
+
 }

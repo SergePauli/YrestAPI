@@ -9,7 +9,7 @@ import (
 
 // BuildAliasMap собирает карту алиасов для конкретного запроса:
 //   - берёт готовые пути/алиасы из preset.FieldsAliasMap (если preset != nil),
-//   - добавляет пути из filters/sorts,
+//   - добавляет пути из filters/sorts и computable выражений,
 //   - проверяет политику re-энтри (rel.Reentrant, rel.MaxDepth) при добавлении НОВЫХ путей,
 //   - возвращает обе проекции Path↔Alias.
 //
@@ -39,10 +39,12 @@ func BuildAliasMap(model *Model, preset *DataPreset, filters map[string]interfac
 		nextIdx = detectNextAliasIndex(am)
 	}
 
-	// 2) Собрать дополнительные пути из filters и sorts.
+	// 2) Собрать дополнительные пути из filters, sorts и computable выражений.
+	compPaths := collectComputablePathsForRequest(model, preset, filters, sorts)
 	extra := mergeAndSortPaths(
 		PathsFromFilters(filters),
 		PathsFromSorts(sorts),
+		compPaths,
 	)
 
 	// 3) Для каждого нужного пути — зарегистрировать алиасы на всех промежуточных сегментах.
@@ -162,16 +164,13 @@ func PathsFromSorts(sorts []string) []string {
 	return dedup(out)
 }
 
-func mergeAndSortPaths(a, b []string) []string {
-	set := make(map[string]struct{}, len(a)+len(b))
-	for _, p := range a {
-		if p != "" {
-			set[p] = struct{}{}
-		}
-	}
-	for _, p := range b {
-		if p != "" {
-			set[p] = struct{}{}
+func mergeAndSortPaths(slices ...[]string) []string {
+	set := make(map[string]struct{})
+	for _, slice := range slices {
+		for _, p := range slice {
+			if p != "" {
+				set[p] = struct{}{}
+			}
 		}
 	}
 	paths := make([]string, 0, len(set))

@@ -116,6 +116,14 @@ func LinkModelRelations() error {
 						)
 					}
 				}
+				if f.Type == "computable" {
+					if model.Computable == nil {
+						return fmt.Errorf("computable '%s' referenced in preset '%s' of model '%s' but model.computable is empty", f.Source, presetName, modelName)
+					}
+					if _, ok := model.Computable[f.Source]; !ok {
+						return fmt.Errorf("computable '%s' referenced in preset '%s' of model '%s' not found in model.computable", f.Source, presetName, modelName)
+					}
+				}
 				if f.Alias == "" {
 					f.Alias = f.Source
 				}

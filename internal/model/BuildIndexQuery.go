@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -10,11 +9,11 @@ import (
 
 // BuildIndexQuery строит SELECT-запрос для /index эндпоинта
 func (m *Model) BuildIndexQuery(
-	aliasMap *AliasMap, // карта алиасов 
+	aliasMap *AliasMap, // карта алиасов
 	filters map[string]interface{},
-	sorts []string,       // array сортировок: ["field1 ASC", "field2 DESC"]
-	preset *DataPreset,        // выбранный пресет
-	offset, limit uint64,   // пагинация
+	sorts []string, // array сортировок: ["field1 ASC", "field2 DESC"]
+	preset *DataPreset, // выбранный пресет
+	offset, limit uint64, // пагинация
 ) (squirrel.SelectBuilder, error) {
 
 	sb := squirrel.SelectBuilder{}.PlaceholderFormat(squirrel.Dollar)
@@ -23,12 +22,8 @@ func (m *Model) BuildIndexQuery(
 	sb = sb.From(fmt.Sprintf("%s AS main", m.Table))
 
 	// 2. Определяем список полей для выборки c учётом пресета
-	
-	
 	if preset == nil {
-		
-			return sb, fmt.Errorf("preset is nil for model '%s'",  m.Table)
-		
+		return sb, fmt.Errorf("preset is nil for model '%s'", m.Table)
 	}
 
 	// 3. Определяем JOIN-ы
@@ -36,51 +31,51 @@ func (m *Model) BuildIndexQuery(
 	for key := range filters {
 		filterKeys = append(filterKeys, key)
 	}
-	
+
 	sortFields := make([]string, len(sorts))
 	for i, s := range sorts {
-    parts := strings.SplitN(s, " ", 2)
-    sortFields[i] = parts[0]
-	}	
-	presetFieldPaths := m.ScanPresetFields(preset, "")		
+		parts := strings.SplitN(s, " ", 2)
+		sortFields[i] = parts[0]
+	}
+	presetFieldPaths := m.ScanPresetFields(preset, "")
+	compPaths := collectComputablePathsForRequest(m, preset, filters, sorts)
+	if len(compPaths) > 0 {
+		presetFieldPaths = append(presetFieldPaths, compPaths...)
+	}
 	joinSpecs, err := m.DetectJoins(aliasMap, filterKeys, sortFields, presetFieldPaths)
-		
+
 	if err != nil {
 		return sb, err
 	}
-	
+
 	hasDistinct := false
 	for i := 0; i < len(joinSpecs); i++ {
-    join := joinSpecs[i]  		
+		join := joinSpecs[i]
 		onClause := join.On
-    if join.Where != "" {
-        onClause = fmt.Sprintf("(%s) AND (%s)", join.On, join.Where)
-    }
-		sb = sb.LeftJoin(fmt.Sprintf("%s AS %s ON %s", join.Table, join.Alias, onClause ))
+		if join.Where != "" {
+			onClause = fmt.Sprintf("(%s) AND (%s)", join.On, join.Where)
+		}
+		sb = sb.LeftJoin(fmt.Sprintf("%s AS %s ON %s", join.Table, join.Alias, onClause))
 		if join.Distinct {
 			hasDistinct = true
 		}
 	}
-	// 3.1. Добавляем поля из пресета	
-	 selectCols,_ := m.ScanColumns(preset, aliasMap, "")	
-	
-	if hasDistinct {
-    pkFields := m.GetPrimaryKeys() // []string, например ["person.id", "person.code"]
-		if len(pkFields) == 1 {
-       // простой DISTINCT по всей строке
-        sb = sb.Distinct()
-    } else if len(pkFields) > 1 {
-        // Составной ключ — DISTINCT ON
-        distinctExpr := fmt.Sprintf("DISTINCT ON (%s)", strings.Join(pkFields, ", "))
-        // В PostgreSQL DISTINCT ON должен стоять в начале списка колонок
-        selectCols = append([]string{distinctExpr}, selectCols...)
-    }
-	}	
+	// 3.1. Добавляем поля из пресета
+	selectCols := m.ScanColumns(preset, aliasMap, "")
 
-	sb = sb.Columns(selectCols...)	
+	if hasDistinct {
+		sb = sb.Distinct()
+	}
+
+	colExprs := make([]string, 0, len(selectCols))
+	for _, c := range selectCols {
+		colExprs = append(colExprs, c.Expr)
+	}
+
+	sb = sb.Columns(colExprs...)
 
 	// 4. WHERE фильтры
-	whereBuilder, err := m.buildWhereClause(aliasMap, filters, joinSpecs)
+	whereBuilder, err := m.buildWhereClause(aliasMap, preset, filters, joinSpecs)
 	if err != nil {
 		return sb, err
 	}
@@ -90,35 +85,43 @@ func (m *Model) BuildIndexQuery(
 
 	// 5. ORDER BY
 	for _, s := range sorts {
-    parts := strings.SplitN(s, " ", 2) // [path, direction?]
-    fieldPath := parts[0]
-    dir := ""
-    if len(parts) > 1 {
-        dir = strings.TrimSpace(parts[1])
-    }
+		parts := strings.SplitN(s, " ", 2) // [path, direction?]
+		fieldPath := parts[0]
+		dir := ""
+		if len(parts) > 1 {
+			dir = strings.TrimSpace(parts[1])
+		}
 
-    // ищем последний "."
-    idx := strings.LastIndex(fieldPath, ".")
-    if idx == -1 {
-        // если точек нет — пропускаем
-        continue
-    }
+		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fieldPath); ok {
+			if dir != "" {
+				expr += " " + dir
+			}
+			sb = sb.OrderBy(expr)
+			continue
+		}
 
-    presetPath := fieldPath[:idx]     // всё до последней точки
-    fieldName  := fieldPath[idx+1:]  // всё после последней точки
+		// ищем последний "."
+		idx := strings.LastIndex(fieldPath, ".")
+		if idx == -1 {
+			// если точек нет — пропускаем
+			continue
+		}
 
-    // Подмена пресета на алиас
-    alias, ok := aliasMap.PathToAlias[presetPath]
-    if !ok {
-        alias = presetPath // fallback — без подмены
-    }
+		presetPath := fieldPath[:idx]  // всё до последней точки
+		fieldName := fieldPath[idx+1:] // всё после последней точки
 
-    // Финальное выражение для ORDER BY
-    orderExpr := fmt.Sprintf("%s.%s", alias, fieldName)
-    if dir != "" {
-        orderExpr += " " + dir
-    }
-    sb = sb.OrderBy(orderExpr)
+		// Подмена пресета на алиас
+		alias, ok := aliasMap.PathToAlias[presetPath]
+		if !ok {
+			alias = presetPath // fallback — без подмены
+		}
+
+		// Финальное выражение для ORDER BY
+		orderExpr := fmt.Sprintf("%s.%s", alias, fieldName)
+		if dir != "" {
+			orderExpr += " " + dir
+		}
+		sb = sb.OrderBy(orderExpr)
 	}
 
 	// 6. LIMIT / OFFSET

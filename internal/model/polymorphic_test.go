@@ -38,7 +38,7 @@ func TestPolymorphicBelongsToScanColumns(t *testing.T) {
 		t.Fatalf("CreateAliasMap: %v", err)
 	}
 
-	cols, types := m.ScanColumns(m.Presets["list"], am, "")
+	cols := m.ScanColumns(m.Presets["list"], am, "")
 	want := map[string]string{
 		"main.id":             "int",
 		"main.auditable_id":   "int",
@@ -48,10 +48,10 @@ func TestPolymorphicBelongsToScanColumns(t *testing.T) {
 		t.Fatalf("expected %d cols, got %d: %v", len(want), len(cols), cols)
 	}
 	for _, c := range cols {
-		if types[c] != want[c] {
-			t.Fatalf("col %s type %s, want %s", c, types[c], want[c])
+		if c.Type != want[c.Expr] {
+			t.Fatalf("col %s type %s, want %s", c.Expr, c.Type, want[c.Expr])
 		}
-		delete(want, c)
+		delete(want, c.Expr)
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing cols: %v", want)

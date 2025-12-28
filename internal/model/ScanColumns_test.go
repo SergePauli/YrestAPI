@@ -18,7 +18,7 @@ func TestScanColumnsIncludesDatetimeFields(t *testing.T) {
 		AliasToPath: map[string]string{},
 	}
 
-	cols, types := m.ScanColumns(p, aliasMap, "")
+	cols := m.ScanColumns(p, aliasMap, "")
 	if len(cols) != 2 {
 		t.Fatalf("expected 2 columns, got %d: %v", len(cols), cols)
 	}
@@ -28,14 +28,10 @@ func TestScanColumnsIncludesDatetimeFields(t *testing.T) {
 		"main.created_at": "datetime",
 	}
 	for _, c := range cols {
-		ft, ok := types[c]
-		if !ok {
-			t.Fatalf("type for col %q missing", c)
+		if c.Type != want[c.Expr] {
+			t.Fatalf("col %q type mismatch: got %q, want %q", c.Expr, c.Type, want[c.Expr])
 		}
-		if ft != want[c] {
-			t.Fatalf("col %q type mismatch: got %q, want %q", c, ft, want[c])
-		}
-		delete(want, c)
+		delete(want, c.Expr)
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing columns: %v", want)

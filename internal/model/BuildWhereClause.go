@@ -7,10 +7,12 @@ import (
 
 	"github.com/Masterminds/squirrel"
 )
+
 func (m *Model) buildWhereClause(
 	aliasMap *AliasMap,
+	preset *DataPreset,
 	filters map[string]any,
-	joins []*JoinSpec,		
+	joins []*JoinSpec,
 ) (squirrel.Sqlizer, error) {
 	var exprs []squirrel.Sqlizer
 
@@ -25,21 +27,25 @@ func (m *Model) buildWhereClause(
 			op = parts[1]
 		}
 
-		
-		// Используем aliasMap.PathToAlias для определения алиаса таблицы
-		var sqlField string
-		if idx := strings.LastIndex(field, "."); idx != -1 {
-			path := field[:idx]      // например "contragent.organization"
-			column := field[idx+1:] // например "name"
-			alias, ok := aliasMap.PathToAlias[path]
-			if !ok {
-				log.Printf("⚠️ Unknown relation path in filter: %s", path)
-				continue
-			}
-			sqlField = fmt.Sprintf("%s.%s", alias, column)
+		// Пытаемся резолвнуть expression через preset/computable
+		sqlField := ""
+		if expr, ok := m.resolveFieldExpression(preset, aliasMap, field); ok {
+			sqlField = expr
 		} else {
-			// поле без ".", значит поле из основной модели
-			sqlField = fmt.Sprintf("main.%s", field)
+			// Используем aliasMap.PathToAlias для определения алиаса таблицы
+			if idx := strings.LastIndex(field, "."); idx != -1 {
+				path := field[:idx]     // например "contragent.organization"
+				column := field[idx+1:] // например "name"
+				alias, ok := aliasMap.PathToAlias[path]
+				if !ok {
+					log.Printf("⚠️ Unknown relation path in filter: %s", path)
+					continue
+				}
+				sqlField = fmt.Sprintf("%s.%s", alias, column)
+			} else {
+				// поле без ".", значит поле из основной модели
+				sqlField = fmt.Sprintf("main.%s", field)
+			}
 		}
 
 		// Построим условие
@@ -72,8 +78,6 @@ func (m *Model) buildWhereClause(
 			log.Printf("⚠️ Unknown filter operator: %s in key: %s", op, key)
 		}
 	}
-
-	
 
 	if len(exprs) == 0 {
 		return nil, nil

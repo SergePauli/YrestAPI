@@ -8,6 +8,7 @@ type Model struct {
 	Table       string                    `yaml:"table"`
 	Relations   map[string]*ModelRelation `yaml:"relations"`
 	Presets     map[string]*DataPreset    `yaml:"presets"`
+	Computable  map[string]*Computable    `yaml:"computable"`   // virtual fields available to all presets
 	PrimaryKeys []string                  `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
 	Includes    StringList                `yaml:"include"`
 }
@@ -87,6 +88,20 @@ type Field struct {
 	MaxDepth     int    `yaml:"max_depth"` // максимальная глубина рекурсии для циклических связей
 	// для runtime (не сериализуется)
 	_PresetRef *DataPreset `yaml:"-"`
+}
+
+// Computable описывает виртуальное поле модели (subquery/expr) доступное из любых пресетов.
+type Computable struct {
+	Source string `yaml:"source"` // SQL-выражение или подзапрос; поддерживает {path} плейсхолдеры
+	Where  string `yaml:"where"`  // альтернативное выражение для WHERE/ORDER (если нужно отличать от select)
+	Type   string `yaml:"type"`   // тип результата (int/string/UUID/etc)
+}
+
+// SelectColumn описывает одно выражение в SELECT и то, куда положить его результат.
+type SelectColumn struct {
+	Expr string // SQL-выражение для SELECT (уже с алиасом, если нужно)
+	Key  string // ключ плоской строки (до FoldFlatRowByPreset), например "person.name" или "id"
+	Type string // тип данных поля (int, string, UUID, datetime и т.д.)
 }
 
 type JoinSpec struct {

@@ -7,11 +7,12 @@ import (
 )
 
 // Разрешённые ключи для объектов
-var allowedModelKeys = map[string]bool{	
-	"table":     true,
-	"relations": true,
-	"presets":   true,
-	"include":   true,
+var allowedModelKeys = map[string]bool{
+	"table":      true,
+	"relations":  true,
+	"presets":    true,
+	"include":    true,
+	"computable": true,
 }
 
 var allowedRelationKeys = map[string]bool{
@@ -40,10 +41,17 @@ var allowedFieldKeys = map[string]bool{
 	"type":      true,
 	"alias":     true,
 	"preset":    true,
+	"where":     true,
 	"internal":  true,
 	"formatter": true,
 	"localize":  true,
 	"max_depth": true,
+}
+
+var allowedComputableKeys = map[string]bool{
+	"source": true,
+	"type":   true,
+	"where":  true,
 }
 
 // Разрешённые значения для type в полях
@@ -59,6 +67,7 @@ var allowedFieldTypeValues = map[string]bool{
 	"date":         true,
 	"UUID":         true,
 	"nested_field": true,
+	"computable":   true,
 }
 
 func validateYAMLNode(node *yaml.Node, context string) error {
@@ -81,6 +90,8 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 			allowedKeys = allowedPresetKeys
 		case "field":
 			allowedKeys = allowedFieldKeys
+		case "computable-entry":
+			allowedKeys = allowedComputableKeys
 		default:
 			allowedKeys = nil // свободная форма
 		}
@@ -95,7 +106,7 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 			}
 
 			// Проверка допустимых значений для type в поле
-			if context == "field" && key == "type" {
+			if (context == "field" || context == "computable-entry") && key == "type" {
 				if !allowedFieldTypeValues[valNode.Value] {
 					return fmt.Errorf("unknown type value '%s' in field", valNode.Value)
 				}
@@ -115,6 +126,10 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 				nextContext = "fields-seq"
 			} else if context == "field" {
 				nextContext = "field-value"
+			} else if context == "model" && key == "computable" {
+				nextContext = "computable-map"
+			} else if context == "computable-map" {
+				nextContext = "computable-entry"
 			} else {
 				nextContext = context
 			}
