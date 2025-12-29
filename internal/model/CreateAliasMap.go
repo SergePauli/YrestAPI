@@ -8,6 +8,10 @@ import (
 
 func (m *Model) CreateAliasMap(model *Model, preset *DataPreset, filters map[string]interface{}, sorts []string) (*AliasMap, error) {
 
+	// разворачиваем короткие алиасы перед построением
+	filters = NormalizeFiltersWithAliases(model, filters)
+	sorts = NormalizeSortsWithAliases(model, sorts)
+
 	// 1. Генерация карты на лету
 	aliasMap, err := BuildAliasMap(m, preset, filters, sorts)
 	if err != nil {

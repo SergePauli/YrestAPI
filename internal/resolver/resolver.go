@@ -28,14 +28,17 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	if preset == nil {
 		return nil, fmt.Errorf("preset not found: %s.%s", req.Model, req.Preset)
 	}
-	aliasMap, err := m.CreateAliasMap(m, preset, req.Filters, req.Sorts)
+	filters := model.NormalizeFiltersWithAliases(m, req.Filters)
+	sorts := model.NormalizeSortsWithAliases(m, req.Sorts)
+
+	aliasMap, err := m.CreateAliasMap(m, preset, filters, sorts)
 	if err != nil {
 		log.Printf("resolver: alias map error: %v", err)
 		return nil, fmt.Errorf("alias map error: %s", err)
 	}
 
 	// 1) главный SELECT
-	sb, err := m.BuildIndexQuery(aliasMap, req.Filters, req.Sorts, preset, req.Offset, req.Limit)
+	sb, err := m.BuildIndexQuery(aliasMap, filters, sorts, preset, req.Offset, req.Limit)
 	if err != nil {
 		return nil, err
 	}

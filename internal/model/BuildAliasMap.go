@@ -137,8 +137,11 @@ func PathsFromFilters(filters map[string]interface{}) []string {
 		if idx := strings.Index(key, "__"); idx >= 0 {
 			base = key[:idx]
 		}
-		if i := strings.LastIndex(base, "."); i >= 0 {
-			out = append(out, base[:i])
+		fields, _ := ParseCompositeField(base)
+		for _, f := range fields {
+			if i := strings.LastIndex(f, "."); i >= 0 {
+				out = append(out, f[:i])
+			}
 		}
 	}
 	return dedup(out)

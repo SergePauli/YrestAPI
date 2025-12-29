@@ -9,6 +9,7 @@ type Model struct {
 	Relations   map[string]*ModelRelation `yaml:"relations"`
 	Presets     map[string]*DataPreset    `yaml:"presets"`
 	Computable  map[string]*Computable    `yaml:"computable"`   // virtual fields available to all presets
+	Aliases     map[string]string         `yaml:"aliases"`      // short path aliases
 	PrimaryKeys []string                  `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
 	Includes    StringList                `yaml:"include"`
 }

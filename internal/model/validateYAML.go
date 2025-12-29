@@ -13,6 +13,7 @@ var allowedModelKeys = map[string]bool{
 	"presets":    true,
 	"include":    true,
 	"computable": true,
+	"aliases":    true,
 }
 
 var allowedRelationKeys = map[string]bool{
@@ -92,6 +93,8 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 			allowedKeys = allowedFieldKeys
 		case "computable-entry":
 			allowedKeys = allowedComputableKeys
+		case "aliases-map":
+			allowedKeys = nil
 		default:
 			allowedKeys = nil // свободная форма
 		}
@@ -130,6 +133,8 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 				nextContext = "computable-map"
 			} else if context == "computable-map" {
 				nextContext = "computable-entry"
+			} else if context == "model" && key == "aliases" {
+				nextContext = "aliases-map"
 			} else {
 				nextContext = context
 			}

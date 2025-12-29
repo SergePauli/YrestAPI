@@ -27,55 +27,76 @@ func (m *Model) buildWhereClause(
 			op = parts[1]
 		}
 
-		// Пытаемся резолвнуть expression через preset/computable
-		sqlField := ""
-		if expr, ok := m.resolveFieldExpression(preset, aliasMap, field); ok {
-			sqlField = expr
-		} else {
-			// Используем aliasMap.PathToAlias для определения алиаса таблицы
-			if idx := strings.LastIndex(field, "."); idx != -1 {
-				path := field[:idx]     // например "contragent.organization"
-				column := field[idx+1:] // например "name"
+		fields, comb := ParseCompositeField(field)
+		parts := make([]squirrel.Sqlizer, 0, len(fields))
+
+		buildCond := func(sqlField string) squirrel.Sqlizer {
+			switch op {
+			case "eq":
+				return squirrel.Eq{sqlField: val}
+			case "in":
+				return squirrel.Eq{sqlField: val} // поддерживает slice
+			case "lt":
+				return squirrel.Lt{sqlField: val}
+			case "lte":
+				return squirrel.LtOrEq{sqlField: val}
+			case "gt":
+				return squirrel.Gt{sqlField: val}
+			case "gte":
+				return squirrel.GtOrEq{sqlField: val}
+			case "start":
+				if s, ok := val.(string); ok {
+					return squirrel.Like{sqlField: s + "%"}
+				}
+			case "end":
+				if s, ok := val.(string); ok {
+					return squirrel.Like{sqlField: "%" + s}
+				}
+			case "cnt":
+				if s, ok := val.(string); ok {
+					return squirrel.Like{sqlField: "%" + s + "%"}
+				}
+			}
+			log.Printf("⚠️ Unknown filter operator: %s in key: %s", op, key)
+			return nil
+		}
+
+		resolveField := func(fld string) string {
+			if expr, ok := m.resolveFieldExpression(preset, aliasMap, fld); ok {
+				return expr
+			}
+			if idx := strings.LastIndex(fld, "."); idx != -1 {
+				path := fld[:idx]     // например "contragent.organization"
+				column := fld[idx+1:] // например "name"
 				alias, ok := aliasMap.PathToAlias[path]
 				if !ok {
 					log.Printf("⚠️ Unknown relation path in filter: %s", path)
-					continue
+					return ""
 				}
-				sqlField = fmt.Sprintf("%s.%s", alias, column)
-			} else {
-				// поле без ".", значит поле из основной модели
-				sqlField = fmt.Sprintf("main.%s", field)
+				return fmt.Sprintf("%s.%s", alias, column)
+			}
+			return fmt.Sprintf("main.%s", fld)
+		}
+
+		for _, f := range fields {
+			sqlField := resolveField(f)
+			if sqlField == "" {
+				continue
+			}
+			if cond := buildCond(sqlField); cond != nil {
+				parts = append(parts, cond)
 			}
 		}
 
-		// Построим условие
-		switch op {
-		case "eq":
-			exprs = append(exprs, squirrel.Eq{sqlField: val})
-		case "in":
-			exprs = append(exprs, squirrel.Eq{sqlField: val}) // поддерживает slice
-		case "lt":
-			exprs = append(exprs, squirrel.Lt{sqlField: val})
-		case "lte":
-			exprs = append(exprs, squirrel.LtOrEq{sqlField: val})
-		case "gt":
-			exprs = append(exprs, squirrel.Gt{sqlField: val})
-		case "gte":
-			exprs = append(exprs, squirrel.GtOrEq{sqlField: val})
-		case "start":
-			if s, ok := val.(string); ok {
-				exprs = append(exprs, squirrel.Like{sqlField: s + "%"})
-			}
-		case "end":
-			if s, ok := val.(string); ok {
-				exprs = append(exprs, squirrel.Like{sqlField: "%" + s})
-			}
-		case "cnt":
-			if s, ok := val.(string); ok {
-				exprs = append(exprs, squirrel.Like{sqlField: "%" + s + "%"})
-			}
-		default:
-			log.Printf("⚠️ Unknown filter operator: %s in key: %s", op, key)
+		if len(parts) == 0 {
+			continue
+		}
+		if comb == "_or_" && len(parts) > 1 {
+			exprs = append(exprs, squirrel.Or(parts))
+		} else if comb == "_and_" && len(parts) > 1 {
+			exprs = append(exprs, squirrel.And(parts))
+		} else {
+			exprs = append(exprs, parts[0])
 		}
 	}
 
