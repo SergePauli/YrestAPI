@@ -36,6 +36,61 @@ go run main.go
 
 ---
 
+## 📡 HTTP API
+
+All requests are `POST` with JSON bodies. Two main endpoints are available:
+
+### `/api/index`
+
+Fetch a list of records using a model preset.
+
+Payload:
+
+```json
+{
+  "model": "Person",
+  "preset": "card",
+  "filters": {
+    "name__cnt": "John",
+    "org.name_or_org.full_name__cnt": "IBM"
+  },
+  "sorts": ["org.name DESC", "id ASC"],
+  "offset": 0,
+  "limit": 50
+}
+```
+
+- `model` — logical model name from `db/*.yml`.
+- `preset` — preset name inside the model.
+- `filters` — map of `field__op: value`.
+  - Operators: `__eq` (default), `__cnt` (LIKE %v%), `__start` (LIKE v%), `__end` (%v), `__lt`, `__lte`, `__gt`, `__gte`, `__in`.
+  - Composite fields: join multiple paths with `_or_` / `_and_`, e.g. `org.name_or_org.full_name__cnt` → `(org.name LIKE ...) OR (org.full_name LIKE ...)`.
+  - Short aliases: if a model defines `aliases:` (e.g. `org: "contragent.organization"`), you can use the short name in filters/sorts; it is expanded automatically.
+  - Computable fields: declared under `computable:` in the model and usable in filters/sorts by name (`fio__cnt`).
+- `sorts` — array of strings `["path [ASC|DESC]"]`; supports aliases and computable fields the same way as filters.
+- `offset` / `limit` — pagination.
+
+### `/api/count`
+
+Returns a single integer (`{"count": N}`) for the same filter semantics.
+
+Payload:
+
+```json
+{
+  "model": "Person",
+  "filters": { "org.name__cnt": "IBM" }
+}
+```
+
+Notes:
+
+- Filters and sorts can traverse relations using dotted paths (`relation.field`), including polymorphic and through relations defined in YAML.
+- All path resolution goes through the alias map; invalid paths are logged and ignored.
+- Redis is used only for caching alias maps (if enabled); query execution hits PostgreSQL directly.
+
+---
+
 ## 🌐 Localization of strings and constants
 
 - Dictionaries live in `cfg/locales/<locale>.yml`; the active locale is loaded into a tree structure.
