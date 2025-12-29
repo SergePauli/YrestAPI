@@ -16,8 +16,6 @@ Everything is configured via YAML — no business logic in code.
 - 🛠️ **Field formatters** — template-based formatting in YAML
 - 🔐 **Production-ready** — plain `Go`, `pgx`, `Redis`
 
----
-
 ## 🧩 When YrestAPI fits
 
 - 🗃 **You already have PostgreSQL** and need to **spin up a JSON API fast** with zero server code.
@@ -67,7 +65,7 @@ go run main.go
   fields:
     - source: status
       type: int
-      localize: true  # numeric codes from DB map to strings from the dictionary
+      localize: true # numeric codes from DB map to strings from the dictionary
     - source: gender
       type: string
       localize: true
@@ -95,7 +93,7 @@ go run main.go
 
 - You can pull relations/presets from template files in `db/templates/*.yml` via:
   ```yaml
-  include: shared_relations   # or [shared_relations, auditable]
+  include: shared_relations # or [shared_relations, auditable]
   ```
 - Relations from templates are added if missing; if a relation exists in the model, empty fields are filled from the template.
 - Presets from templates merge with model presets: template fields are applied first, then model fields override/extend by alias/source. Fields marked with `alias: skip` in templates are ignored.
@@ -117,15 +115,17 @@ go run main.go
       through_where: .used = true
   ```
 - **SQL result:**
+
   ```sql
-  LEFT JOIN person_contacts AS pc 
-  ON (main.id = pc.person_id) 
+  LEFT JOIN person_contacts AS pc
+  ON (main.id = pc.person_id)
   AND (pc.used = true)
 
-  LEFT JOIN contacts AS c 
-  ON (pc.contact_id = c.id) 
+  LEFT JOIN contacts AS c
+  ON (pc.contact_id = c.id)
   AND (c.type = 'Phone')
   ```
+
 - **Purpose:**
 
   **where** — filters for the final relation table.  
@@ -144,6 +144,7 @@ Formatters are a mini-language for computed fields, allowing value composition, 
 ### Syntax
 
 #### 1. Inline computed field
+
 ```yaml
 - source: "{surname} {name}[0] {patronymic}[0..1]"
   type: formatter
@@ -151,6 +152,7 @@ Formatters are a mini-language for computed fields, allowing value composition, 
 ```
 
 #### 2. Formatter for a relation (preset)
+
 ```yaml
 - source: contacts
   type: preset
@@ -162,7 +164,9 @@ Formatters are a mini-language for computed fields, allowing value composition, 
 ---
 
 ### Token rules
+
 Inside `{ ... }` you can use:
+
 - **Fields**: `{field}`
 - **Nested fields**: `{relation.field}`
 - **Character ranges**:  
@@ -172,16 +176,18 @@ Inside `{ ... }` you can use:
 ---
 
 ### Behaviour by relation type
-| Relation type  | Result of formatter |
-|----------------|--------------------|
-| `belongs_to`   | String from related object |
-| `has_one`      | String from child object |
-| `has_many`     | Array of strings (one per child) |
-| Simple field   | String from current row |
+
+| Relation type | Result of formatter              |
+| ------------- | -------------------------------- |
+| `belongs_to`  | String from related object       |
+| `has_one`     | String from child object         |
+| `has_many`    | Array of strings (one per child) |
+| Simple field  | String from current row          |
 
 ---
 
 ### Example
+
 ```yaml
 presets:
   card:
@@ -200,62 +206,66 @@ presets:
 ```
 
 **Result:**
+
 ```json
 [
   {
     "id": 64,
     "name": "Ivanov A V",
-    "contacts": [
-      "Phone: +7 923 331 49 55",
-      "Email: example@mail.com"
-    ]
+    "contacts": ["Phone: +7 923 331 49 55", "Email: example@mail.com"]
   }
 ]
 ```
 
 #### 3. Ternary operators
+
 **Syntax:**
+
 ```yaml
-  {? <condition> ? <then> : <else>}
+{ <condition> ? <then>: <else> }
 ```
+
 **Condition forms:**
 
--  Full form: <field> <op> <value>
--  Supported operators: ==, =, !=, >, >=, <, <=.
+- Full form: <field> <op> <value>
+- Supported operators: ==, =, !=, >, >=, <, <=.
 
--  Shorthand form: just <field> → evaluates truthy/falsy.
+- Shorthand form: just <field> → evaluates truthy/falsy.
 
--  Supported literals:
+- Supported literals:
 
-    - Numbers: **10**, **3.14**
+  - Numbers: **10**, **3.14**
 
-    - Booleans: **true**, **false**
+  - Booleans: **true**, **false**
 
-    - Null: **null**
+  - Null: **null**
 
-    - Strings: **"ok"**, **'fail'**
+  - Strings: **"ok"**, **'fail'**
 
 **Examples:**
-  ```yaml
-  - source: `{? used ? "+" : "-"}`
-    type: formatter
-    alias: used_flag
+
+```yaml
+- source: `{? used ? "+" : "-"}`
+  type: formatter
+  alias: used_flag
 # true  → "+"
 # false → "-"
 
-  - source: `{? age >= 18 ? "adult" : "minor"}`
-    type: formatter
-    alias: age_group
+- source: `{? age >= 18 ? "adult" : "minor"}`
+  type: formatter
+  alias: age_group
 # age=20 → "adult"
 # age=15 → "minor"
 
-  - source: `{? status == "ok" ? "✔" : "✖"}`
-    type: formatter
-    alias: status_icon
+- source: `{? status == "ok" ? "✔" : "✖"}`
+  type: formatter
+  alias: status_icon
 ```
 
 ### Nested ternaries
+
 Ternary expressions can be nested:
+
 ```yaml
 - source: `{? used ? "{? age >= 18 ? "adult" : "minor"}" : "-"}`
   type: formatter
@@ -266,7 +276,9 @@ Ternary expressions can be nested:
 ```
 
 ### Combining with substitutions
+
 Formatters can combine conditional logic and substitutions:
+
 ```yaml
 - source: '{? used ? "+" : "-"} {naming.surname} {naming.name}[0].'
   type: formatter
@@ -293,6 +305,39 @@ Formatters can combine conditional logic and substitutions:
   ```
   The `contacts` array from the nested `person` branch will be copied to the current item, even if `person` itself is not exposed in the response.
 - Works for arrays or scalars; alias is optional (defaults to the source path).
+
+---
+
+---
+
+## 🧮 Computable (virtual) fields
+
+Calculated fields are declared at the model level and are available in all presets. They allow you to use subqueries or expressions like regular columns: in selections, filters, sorts, and formatters.
+
+```yaml
+computable:
+  fio:
+    source: "(select concat({surname}, ' ', {name}, ' ', {patrname}))"
+    type: string
+  stages_sum:
+    source: "(select sum({stages}.amount))" # {relation}.col → the alias of the connection will be substituted
+    where: "(select sum({stages}.amount))" # optional: separate expression for filters/sorts
+    type: float
+presets:
+  card:
+    fields:
+      - source: "fio"
+        alias: "full_name"
+        type: computable
+      - source: "stages_sum"
+        type: computable
+```
+
+Rules:
+
+- Placeholders of the type `{path}` are replaced with SQL aliases of links from alias map. `{relation}.col` will turn into `tN.col'.
+- Put parentheses in subqueries so that you can safely include in SELECT: `(select ...)` → `... AS "alias"`.
+- For use in filters/sorts, it is enough to refer to the name computable (`fio__cnt`, `stages_sum DESC`) — the engine will substitute the expression.
 
 ---
 
