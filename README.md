@@ -70,6 +70,26 @@ Payload:
 - `sorts` — array of strings `["path [ASC|DESC]"]`; supports aliases and computable fields the same way as filters.
 - `offset` / `limit` — pagination.
 
+- Success response: HTTP 200 with JSON array of objects.
+  ```json
+  [
+    {
+      "id": 1,
+      "name": "John Smith",
+      "org": { "name": "IBM" }
+    }
+  ]
+  ```
+- Error response examples:
+  - 400 Bad Request — invalid JSON / unknown model or preset:
+    ```json
+    {"error": "preset not found: Person.card"}
+    ```
+  - 500 Internal Server Error — SQL/build issues:
+    ```json
+    {"error": "Failed to resolve data: ERROR: column t4.fio does not exist (SQLSTATE 42703)"}
+    ```
+
 ### `/api/count`
 
 Returns a single integer (`{"count": N}`) for the same filter semantics.
@@ -83,11 +103,77 @@ Payload:
 }
 ```
 
+- Success response: HTTP 200 with `{"count": 123}`.
+- Errors mirror `/api/index` (bad request/validation → 400, build/DB errors → 500).
+
 Notes:
 
 - Filters and sorts can traverse relations using dotted paths (`relation.field`), including polymorphic and through relations defined in YAML.
 - All path resolution goes through the alias map; invalid paths are logged and ignored.
 - Redis is used only for caching alias maps (if enabled); query execution hits PostgreSQL directly.
+
+---
+
+## ⚙️ Service configuration
+
+Configuration is read from environment variables (see `internal/config/config.go`):
+
+| Env var        | Default                                           | Description                                |
+|----------------|---------------------------------------------------|--------------------------------------------|
+| `PORT`         | `8080`                                            | HTTP port for the API server               |
+| `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string |
+| `REDIS_ADDR`   | `localhost:6379`                                  | Redis address for alias map caching        |
+| `MODELS_DIR`   | `./db`                                            | Path to directory with YAML model files    |
+| `LOCALE`       | `en`                                              | Default locale for localization            |
+
+You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
+
+---
+
+## 🏗️ How the engine works
+
+- At startup the service loads all `.yml` model files from `MODELS_DIR`, builds a registry of models, relations, presets, computable fields, aliases, and validates the graph. This registry is kept in memory and reused for all requests; database connections come from the pgx pool.
+- Validation checks:
+  - All referenced models/relations/presets exist.
+  - Relations have valid types (`has_one/has_many/belongs_to`), FK/PK defaults are applied, `through` chains are consistent.
+  - Polymorphic `belongs_to` are allowed only with `polymorphic: true`.
+  - Preset fields: `type: preset` must reference an existing relation and nested preset; `type: formatter` must have an alias; `type: computable` must exist under `computable`.
+  - YAML keys are validated; unknown keys/types raise errors on startup.
+- If validation fails, the service logs the reason and aborts startup; fix the YAML and restart.
+
+### Model YAML structure (critical nodes)
+
+```yaml
+table: people                  # required: DB table name
+aliases:                       # optional: short paths → full relation paths
+  org: "contragent.organization"
+computable:                    # optional: global computed fields
+  fio:
+    source: "(select concat({surname}, ' ', {name}, ' ', {patrname}))"
+    type: string
+relations:                     # required if presets reference other models
+  person_name:
+    model: PersonName
+    type: has_one              # has_one / has_many / belongs_to
+    where: .used = true        # optional; leading dot is replaced by SQL alias
+presets:                       # at least one preset to serve data
+  card:
+    fields:
+      - source: id
+        type: int
+      - source: person_name
+        type: preset
+        preset: item
+      - source: "fio"          # computable usage
+        type: computable
+        alias: full_name
+```
+
+Key points:
+- `table` is mandatory; `relations` define the graph (with optional `through`, `where`, `order`, `polymorphic`).
+- `presets` describe which fields to select/return; `type: preset` walks relations, `type: computable` inserts expressions, `type: formatter` post-processes values, `type: nested_field` copies nested JSON branches.
+- `computable` and `aliases` are global per model and can be used in any preset, filter, or sort.
+- Validation occurs once at startup; malformed configs prevent the server from running, ensuring bad schemas don’t reach production.
 
 ---
 
