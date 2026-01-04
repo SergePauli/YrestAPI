@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// Проверяем, что короткие алиасы разворачиваются в пути и используются в JOIN/WHERE.
-func TestAliasShortcutInFilters(t *testing.T) {
+func aliasShortcutFixture(t *testing.T) (*Model, *DataPreset, map[string]any) {
+	t.Helper()
+
 	person := &Model{
 		Name:  "Person",
 		Table: "people",
@@ -38,11 +39,13 @@ func TestAliasShortcutInFilters(t *testing.T) {
 		Table: "organizations",
 	}
 
+	prevRegistry := Registry
 	Registry = map[string]*Model{
 		"Person":       person,
 		"Contragent":   contragent,
 		"Organization": organization,
 	}
+	t.Cleanup(func() { Registry = prevRegistry })
 
 	if err := LinkModelRelations(); err != nil {
 		t.Fatalf("LinkModelRelations: %v", err)
@@ -53,6 +56,13 @@ func TestAliasShortcutInFilters(t *testing.T) {
 
 	preset := person.Presets["list"]
 	filters := map[string]any{"org.name__cnt": "IBM"}
+
+	return person, preset, filters
+}
+
+// Проверяем, что короткие алиасы разворачиваются в пути и используются в JOIN/WHERE.
+func TestAliasShortcutInFilters(t *testing.T) {
+	person, preset, filters := aliasShortcutFixture(t)
 
 	aliasMap, err := person.CreateAliasMap(person, preset, filters, nil)
 	if err != nil {
@@ -73,5 +83,35 @@ func TestAliasShortcutInFilters(t *testing.T) {
 	}
 	if !strings.Contains(sql, "t1.name") {
 		t.Fatalf("alias in filter not applied, sql: %s", sql)
+	}
+}
+
+// Проверяем, что BuildCountQuery тоже использует развёрнутые алиасы из фильтров.
+func TestAliasShortcutInCount(t *testing.T) {
+	person, preset, filters := aliasShortcutFixture(t)
+
+	aliasMap, err := person.CreateAliasMap(person, preset, filters, nil)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	sb, err := person.BuildCountQuery(aliasMap, preset, filters)
+	if err != nil {
+		t.Fatalf("BuildCountQuery: %v", err)
+	}
+
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if !strings.Contains(sql, "organizations AS") {
+		t.Fatalf("expected join to organizations, got: %s", sql)
+	}
+	if strings.Contains(sql, "org.name") {
+		t.Fatalf("raw alias leaked into WHERE, sql: %s", sql)
+	}
+	if !strings.Contains(sql, "t1.name") {
+		t.Fatalf("alias in filter not applied in count, sql: %s", sql)
 	}
 }

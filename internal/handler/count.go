@@ -47,8 +47,11 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Разворачиваем короткие алиасы в фильтрах, чтобы карта алиасов и WHERE работали с одними ключами
+	filters := model.NormalizeFiltersWithAliases(m, req.Filters)
+
 	// Получаем карту алиасов из Redis или строим на лету
-	aliasMap, err := m.CreateAliasMap(m, preset, req.Filters, nil)
+	aliasMap, err := m.CreateAliasMap(m, preset, filters, nil)
 	if err != nil {
 		// БЫЛО: fmt.Sprintf("alias map error: %w", err) — НЕЛЬЗЯ
 		http.Error(w, "alias map error: "+err.Error(), http.StatusInternalServerError)
@@ -56,7 +59,7 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Строим SQL-запрос для подсчета записей
-	query, err := m.BuildCountQuery(aliasMap, preset, req.Filters)
+	query, err := m.BuildCountQuery(aliasMap, preset, filters)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Query error: %v", err), http.StatusInternalServerError)
 		return

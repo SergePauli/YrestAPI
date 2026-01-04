@@ -7,6 +7,9 @@ import (
 )
 
 func (m *Model) BuildCountQuery(aliasMap *AliasMap, preset *DataPreset, filters map[string]interface{}) (squirrel.SelectBuilder, error) {
+	// Разворачиваем алиасы, чтобы requiredJoins и WHERE использовали те же пути, что и aliasMap
+	filters = NormalizeFiltersWithAliases(m, filters)
+
 	sb := squirrel.SelectBuilder{}.PlaceholderFormat(squirrel.Dollar)
 	sb = sb.From(fmt.Sprintf("%s AS main", m.Table))
 
