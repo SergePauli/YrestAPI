@@ -61,7 +61,16 @@ func applyAliasPlaceholders(expr string, aliasMap *AliasMap, basePath string) st
 	}
 	matches := placeholderRe.FindAllStringSubmatchIndex(expr, -1)
 	if len(matches) == 0 {
-		return expr
+		alias := ""
+		if basePath == "" {
+			alias = "main"
+		} else if a, ok := aliasMap.PathToAlias[basePath]; ok {
+			alias = a
+		}
+		if alias == "" {
+			return expr
+		}
+		return qualifyBareIdentifiers(expr, alias)
 	}
 
 	var b strings.Builder
@@ -109,5 +118,163 @@ func applyAliasPlaceholders(expr string, aliasMap *AliasMap, basePath string) st
 	}
 
 	b.WriteString(expr[last:])
+	out := b.String()
+
+	alias := ""
+	if basePath == "" {
+		alias = "main"
+	} else if a, ok := aliasMap.PathToAlias[basePath]; ok {
+		alias = a
+	}
+	if alias == "" {
+		return out
+	}
+	return qualifyBareIdentifiers(out, alias)
+}
+
+func qualifyBareIdentifiers(expr, alias string) string {
+	if alias == "" || strings.TrimSpace(expr) == "" {
+		return expr
+	}
+
+	keywords := map[string]struct{}{
+		"select": {}, "from": {}, "where": {}, "and": {}, "or": {}, "not": {}, "null": {}, "true": {}, "false": {},
+		"like": {}, "ilike": {}, "similar": {}, "between": {}, "as": {}, "case": {}, "when": {}, "then": {}, "else": {}, "end": {},
+		"on": {}, "inner": {}, "left": {}, "right": {}, "full": {}, "cross": {}, "join": {}, "union": {}, "all": {}, "distinct": {},
+		"order": {}, "by": {}, "group": {}, "limit": {}, "offset": {}, "having": {}, "exists": {}, "in": {}, "is": {}, "over": {},
+		"partition": {}, "filter": {}, "returning": {}, "with": {},
+	}
+	skipAfter := map[string]int{
+		"from":   2,
+		"join":   2,
+		"update": 2,
+		"into":   2,
+		"delete": 2,
+	}
+
+	var b strings.Builder
+	b.Grow(len(expr) + len(alias))
+	inSingle, inDouble := false, false
+	skipNext := 0
+
+	for i := 0; i < len(expr); {
+		ch := expr[i]
+
+		if inSingle {
+			b.WriteByte(ch)
+			if ch == '\'' {
+				if i+1 < len(expr) && expr[i+1] == '\'' {
+					b.WriteByte(expr[i+1])
+					i += 2
+					continue
+				}
+				inSingle = false
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			b.WriteByte(ch)
+			if ch == '"' {
+				if i+1 < len(expr) && expr[i+1] == '"' {
+					b.WriteByte('"')
+					i += 2
+					continue
+				}
+				inDouble = false
+			}
+			i++
+			continue
+		}
+
+		if ch == '\'' {
+			inSingle = true
+			b.WriteByte(ch)
+			i++
+			continue
+		}
+		if ch == '"' {
+			inDouble = true
+			b.WriteByte(ch)
+			i++
+			continue
+		}
+
+		if isIdentStart(ch) {
+			start := i
+			i++
+			for i < len(expr) && isIdentPart(expr[i]) {
+				i++
+			}
+
+			ident := expr[start:i]
+			lower := strings.ToLower(ident)
+			if c, ok := skipAfter[lower]; ok {
+				skipNext = c
+			}
+			if _, isKeyword := keywords[lower]; isKeyword {
+				b.WriteString(ident)
+				continue
+			}
+
+			if skipNext > 0 {
+				skipNext--
+				b.WriteString(ident)
+				continue
+			}
+
+			prev := prevNonSpace(expr, start-1)
+			next := nextNonSpace(expr, i)
+			if prev == '.' || prev == ':' || prev == '"' {
+				b.WriteString(ident)
+				continue
+			}
+			if next == '.' || next == '(' {
+				b.WriteString(ident)
+				continue
+			}
+
+			b.WriteString(alias)
+			b.WriteByte('.')
+			b.WriteString(ident)
+			continue
+		}
+
+		b.WriteByte(ch)
+		i++
+	}
+
 	return b.String()
+}
+
+func isIdentStart(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
+}
+
+func isIdentPart(ch byte) bool {
+	return isIdentStart(ch) || (ch >= '0' && ch <= '9')
+}
+
+func prevNonSpace(s string, idx int) byte {
+	for i := idx; i >= 0; i-- {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		default:
+			return s[i]
+		}
+	}
+	return 0
+}
+
+func nextNonSpace(s string, idx int) byte {
+	for i := idx; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		default:
+			return s[i]
+		}
+	}
+	return 0
 }

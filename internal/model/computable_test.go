@@ -118,3 +118,69 @@ func TestComputablePlaceholderUsesAlias(t *testing.T) {
 		t.Fatalf("placeholder {stages} not replaced with alias in SQL: %s", sql)
 	}
 }
+
+func TestComputableBareColumnsQualifiedInFilters(t *testing.T) {
+	naming := &Model{
+		Name:  "Naming",
+		Table: "namings",
+		Computable: map[string]*Computable{
+			"fio": {
+				Source: "(select concat(surname, ' ', name, ' ', patrname))",
+				Type:   "string",
+			},
+		},
+		Presets: map[string]*DataPreset{
+			"item": {
+				Fields: []Field{
+					{Source: "id", Type: "int"},
+				},
+			},
+		},
+	}
+	person := &Model{
+		Name:  "Person",
+		Table: "people",
+		Relations: map[string]*ModelRelation{
+			"naming": {Type: "belongs_to", Model: "Naming"},
+		},
+		Presets: map[string]*DataPreset{
+			"list": {
+				Fields: []Field{
+					{Source: "id", Type: "int"},
+				},
+			},
+		},
+	}
+	Registry = map[string]*Model{"Person": person, "Naming": naming}
+	if err := LinkModelRelations(); err != nil {
+		t.Fatalf("LinkModelRelations: %v", err)
+	}
+
+	preset := person.Presets["list"]
+	filters := map[string]any{"naming.fio__cnt": "ann"}
+
+	aliasMap, err := person.CreateAliasMap(person, preset, filters, nil)
+	if err != nil {
+		t.Fatalf("CreateAliasMap error: %v", err)
+	}
+
+	sb, err := person.BuildIndexQuery(aliasMap, filters, nil, preset, 0, 0)
+	if err != nil {
+		t.Fatalf("BuildIndexQuery error: %v", err)
+	}
+
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql error: %v", err)
+	}
+
+	if strings.Contains(sql, "concat(surname") {
+		t.Fatalf("computable columns not qualified in SQL: %s", sql)
+	}
+	if !strings.Contains(sql, "concat(t0.surname") {
+		t.Fatalf("computable columns not qualified with alias: %s", sql)
+	}
+	if !strings.Contains(sql, "WHERE ((select concat(") {
+		t.Fatalf("WHERE clause does not use computable expression: %s", sql)
+	}
+}
