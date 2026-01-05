@@ -12,14 +12,13 @@ import (
 // Если пресеты не нужны, можно передать nil или пустой срез
 func (m *Model) DetectJoins(
 	aliasMap *AliasMap,
-	filterFields []string,	
+	filterFields []string,
 	sortFields []string, // опционально
 	presetFields []string, // опционально.
 ) ([]*JoinSpec, error) {
-	joinMap := map[string]*JoinSpec{}		
+	joinMap := map[string]*JoinSpec{}
 	joins := make([]*JoinSpec, 0)
-	
-	
+
 	// Объединяем все поля в единый список для рекурсивного поиска
 	allFields := make([]string, 0, len(filterFields)+len(sortFields)+len(presetFields))
 	allFields = append(allFields, filterFields...)
@@ -29,8 +28,8 @@ func (m *Model) DetectJoins(
 	if presetFields != nil {
 		allFields = append(allFields, presetFields...)
 	}
-	// detectJoinsRecursive рекурсивно определяет JOIN-ы для модели 
-	toAdd, err := detectJoinsRecursive(m, allFields, joinMap, "", "main",false, aliasMap)
+	// detectJoinsRecursive рекурсивно определяет JOIN-ы для модели
+	toAdd, err := detectJoinsRecursive(m, allFields, joinMap, "", "main", false, aliasMap)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +55,9 @@ func detectJoinsRecursive(
 	joins := make([]*JoinSpec, 0)
 
 	for _, field := range fields {
+		if expanded := ExpandAliasPath(m, field); expanded != "" {
+			field = expanded
+		}
 		// Разбиваем путь: relName[.tail?]
 		var relName, tail string
 		if i := strings.IndexByte(field, '.'); i >= 0 {
@@ -79,7 +81,7 @@ func detectJoinsRecursive(
 			continue
 		}
 
-		fullPath := pathPrefix + relName		
+		fullPath := pathPrefix + relName
 		alias, ok := aliasMap.PathToAlias[fullPath]
 		if !ok {
 			return joins, fmt.Errorf("alias not found for path %s в карте %+v for model %s", fullPath, aliasMap.PathToAlias, m.Name)
@@ -170,31 +172,30 @@ func detectJoinsRecursive(
 	return joins, nil
 }
 
-
 // generateUniqueAlias создает уникальный алиас для JOIN-а
 // Используется для генерации алиасов, которые не конфликтуют с уже существующими
 func generateUniqueAlias(existing map[string]*JoinSpec) string {
-    for {
-        alias := randomAlias(3) // например "ab", "xz"
-        if _, exists := existing[alias]; !exists {
-            return alias
-        }
-    }
+	for {
+		alias := randomAlias(3) // например "ab", "xz"
+		if _, exists := existing[alias]; !exists {
+			return alias
+		}
+	}
 }
 
 // randomAlias генерирует случайный алиас из букв
 // Используется для создания уникальных алиасов в JOIN-ах
 func randomAlias(length int) string {
-    letters := []rune("bcfghjklmnpqrstvwxz")
-    b := make([]rune, length)
-    for i := range b {
-        b[i] = letters[rand.Intn(len(letters))]
-    }
-    return string(b)
+	letters := []rune("bcfghjklmnpqrstvwxz")
+	b := make([]rune, length)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
 func replaceTableWithAlias(where string, alias string) string {
-    if where == "" {
-        return ""
-    }
-    return strings.ReplaceAll(where, ".", alias+".")
+	if where == "" {
+		return ""
+	}
+	return strings.ReplaceAll(where, ".", alias+".")
 }

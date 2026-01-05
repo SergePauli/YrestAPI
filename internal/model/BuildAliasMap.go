@@ -70,9 +70,19 @@ func ensureAliasPath(root *Model, am *AliasMap, fullPath string, nextIdx *int) e
 	var stack []*Model
 	path := ""
 
-	for i, seg := range segs {
+	for i := 0; i < len(segs); i++ {
+		seg := segs[i]
 		rel := curr.Relations[seg]
 		if rel == nil {
+			remaining := strings.Join(segs[i:], ".")
+			expanded := ExpandAliasPath(curr, remaining)
+			if expanded != remaining {
+				newSegs := append([]string{}, segs[:i]...)
+				newSegs = append(newSegs, strings.Split(expanded, ".")...)
+				segs = newSegs
+				i-- // reprocess current position with expanded path
+				continue
+			}
 			return fmt.Errorf("relation %q not found in model %s", seg, curr.Name)
 		}
 		if rel.Polymorphic {

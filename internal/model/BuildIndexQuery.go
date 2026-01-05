@@ -7,6 +7,33 @@ import (
 	"github.com/Masterminds/squirrel"
 )
 
+// expandPathWithAliases разворачивает алиасы в пути, двигаясь по связям модели.
+func expandPathWithAliases(m *Model, path string) string {
+	if m == nil || strings.TrimSpace(path) == "" {
+		return path
+	}
+	segs := strings.Split(path, ".")
+	curr := m
+	for i := 0; i < len(segs); i++ {
+		seg := segs[i]
+		rel := curr.Relations[seg]
+		if rel == nil || rel.Polymorphic || rel._ModelRef == nil {
+			remaining := strings.Join(segs[i:], ".")
+			expanded := ExpandAliasPath(curr, remaining)
+			if expanded != remaining {
+				newSegs := append([]string{}, segs[:i]...)
+				newSegs = append(newSegs, strings.Split(expanded, ".")...)
+				segs = newSegs
+				i--
+				continue
+			}
+			break
+		}
+		curr = rel._ModelRef
+	}
+	return strings.Join(segs, ".")
+}
+
 // BuildIndexQuery строит SELECT-запрос для /index эндпоинта
 func (m *Model) BuildIndexQuery(
 	aliasMap *AliasMap, // карта алиасов
@@ -63,16 +90,10 @@ func (m *Model) BuildIndexQuery(
 	// 3.1. Добавляем поля из пресета
 	selectCols := m.ScanColumns(preset, aliasMap, "")
 
-	if hasDistinct {
-		sb = sb.Distinct()
-	}
-
 	colExprs := make([]string, 0, len(selectCols))
 	for _, c := range selectCols {
 		colExprs = append(colExprs, c.Expr)
 	}
-
-	sb = sb.Columns(colExprs...)
 
 	// 4. WHERE фильтры
 	whereBuilder, err := m.buildWhereClause(aliasMap, preset, filters, joinSpecs)
@@ -84,19 +105,42 @@ func (m *Model) BuildIndexQuery(
 	}
 
 	// 5. ORDER BY
+	existingSelect := make(map[string]struct{}, len(colExprs))
+	normalizeExpr := func(s string) string {
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+	for _, expr := range colExprs {
+		existingSelect[normalizeExpr(expr)] = struct{}{}
+	}
+
+	orderExprs := make([]string, 0, len(sorts))
 	for _, s := range sorts {
 		parts := strings.SplitN(s, " ", 2) // [path, direction?]
-		fieldPath := parts[0]
+		fieldPath := expandPathWithAliases(m, parts[0])
 		dir := ""
 		if len(parts) > 1 {
 			dir = strings.TrimSpace(parts[1])
+		}
+
+		addSelectExpr := func(expr string) {
+			if !hasDistinct || expr == "" {
+				return
+			}
+			key := normalizeExpr(expr)
+			if _, ok := existingSelect[key]; ok {
+				return
+			}
+			selectCols = append(selectCols, SelectColumn{Expr: expr, Key: "", Type: ""})
+			colExprs = append(colExprs, expr)
+			existingSelect[key] = struct{}{}
 		}
 
 		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fieldPath); ok {
 			if dir != "" {
 				expr += " " + dir
 			}
-			sb = sb.OrderBy(expr)
+			orderExprs = append(orderExprs, expr)
+			addSelectExpr(strings.Fields(expr)[0])
 			continue
 		}
 
@@ -121,7 +165,18 @@ func (m *Model) BuildIndexQuery(
 		if dir != "" {
 			orderExpr += " " + dir
 		}
-		sb = sb.OrderBy(orderExpr)
+		orderExprs = append(orderExprs, orderExpr)
+		addSelectExpr(fmt.Sprintf("%s.%s", alias, fieldName))
+	}
+
+	if hasDistinct {
+		sb = sb.Distinct()
+	}
+
+	sb = sb.Columns(colExprs...)
+
+	for _, expr := range orderExprs {
+		sb = sb.OrderBy(expr)
 	}
 
 	// 6. LIMIT / OFFSET

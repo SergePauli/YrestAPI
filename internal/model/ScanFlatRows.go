@@ -72,6 +72,9 @@ func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset, aliasMap *AliasM
 					v = string(b)
 				}
 			}
+			if strings.TrimSpace(col.Key) == "" {
+				continue
+			}
 			row[col.Key] = v
 		}
 		row = FoldFlatRowByPreset(row) // сворачиваем вложенные объекты
