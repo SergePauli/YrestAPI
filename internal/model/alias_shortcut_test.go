@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,95 @@ func TestAliasShortcutInCount(t *testing.T) {
 	}
 	if !strings.Contains(sql, "t1.name") {
 		t.Fatalf("alias in filter not applied in count, sql: %s", sql)
+	}
+}
+
+func TestAliasShortcutRecursiveInFilters(t *testing.T) {
+	org := &Model{Name: "Organization", Table: "organizations"}
+	contrOrg := &Model{
+		Name:  "ContragentOrganization",
+		Table: "contragent_organizations",
+		Relations: map[string]*ModelRelation{
+			"organization": {Type: "belongs_to", Model: "Organization"},
+		},
+	}
+	contr := &Model{
+		Name:  "Contragent",
+		Table: "contragents",
+		Aliases: map[string]string{
+			"org": "contragent_organization.organization",
+		},
+		Relations: map[string]*ModelRelation{
+			"contragent_organization": {Type: "belongs_to", Model: "ContragentOrganization"},
+		},
+	}
+	contract := &Model{
+		Name:  "Contract",
+		Table: "contracts",
+		Relations: map[string]*ModelRelation{
+			"contragent": {Type: "belongs_to", Model: "Contragent"},
+		},
+	}
+	stage := &Model{
+		Name:  "Stage",
+		Table: "stages",
+		Relations: map[string]*ModelRelation{
+			"contract": {Type: "belongs_to", Model: "Contract"},
+		},
+		Presets: map[string]*DataPreset{
+			"list": {Fields: []Field{{Source: "id", Type: "int"}}},
+		},
+	}
+
+	prev := Registry
+	Registry = map[string]*Model{
+		"Stage":                  stage,
+		"Contract":               contract,
+		"Contragent":             contr,
+		"ContragentOrganization": contrOrg,
+		"Organization":           org,
+	}
+	t.Cleanup(func() { Registry = prev })
+
+	if err := LinkModelRelations(); err != nil {
+		t.Fatalf("LinkModelRelations: %v", err)
+	}
+	if err := BuildPresetAliasMaps(); err != nil {
+		t.Fatalf("BuildPresetAliasMaps: %v", err)
+	}
+
+	filters := map[string]any{"contract.contragent.org.name__cnt": "IBM"}
+	preset := stage.Presets["list"]
+	aliasMap, err := stage.CreateAliasMap(stage, preset, filters, nil)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	path := "contract.contragent.contragent_organization.organization"
+	alias, ok := aliasMap.PathToAlias[path]
+	if !ok {
+		t.Fatalf("alias for expanded path not found, map: %+v", aliasMap.PathToAlias)
+	}
+
+	sb, err := stage.BuildCountQuery(aliasMap, preset, filters)
+	if err != nil {
+		t.Fatalf("BuildCountQuery: %v", err)
+	}
+
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if strings.Contains(sql, "contract.contragent.org.name") {
+		t.Fatalf("raw alias remained in SQL: %s", sql)
+	}
+	expected := fmt.Sprintf("%s.name", alias)
+	if !strings.Contains(sql, expected) {
+		t.Fatalf("expanded alias not used in WHERE, expected %s in %s", expected, sql)
+	}
+	if !strings.Contains(sql, "organizations AS") {
+		t.Fatalf("expected join to organizations, got: %s", sql)
 	}
 }
 

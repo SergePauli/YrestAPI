@@ -2,29 +2,45 @@ package model
 
 import "strings"
 
-// ExpandAliasPath заменяет первый сегмент пути на полный, если он определён в model.Aliases.
+// ExpandAliasPath разворачивает алиасы в пути, проходя по связям модели.
+// Например, contract.contragent.org.name, где org — алиас во вложенной модели Contragent.
 func ExpandAliasPath(m *Model, path string) string {
-	if m == nil || len(m.Aliases) == 0 || path == "" {
+	if m == nil || path == "" {
 		return path
 	}
-	first := path
-	rest := ""
-	if i := strings.IndexByte(path, '.'); i >= 0 {
-		first = path[:i]
-		rest = path[i+1:]
-	}
-	if full, ok := m.Aliases[first]; ok && strings.TrimSpace(full) != "" {
-		if rest != "" {
-			return full + "." + rest
+	segs := strings.Split(path, ".")
+	curr := m
+	for i := 0; i < len(segs); i++ {
+		seg := segs[i]
+
+		// Подставляем алиас, если он есть на текущей модели
+		if full, ok := curr.Aliases[seg]; ok {
+			full = strings.TrimSpace(full)
+			if full != "" && full != seg {
+				aliasSegs := strings.Split(full, ".")
+				// заменяем текущий сегмент на развёрнутый, оставляя префикс
+				newSegs := append([]string{}, segs[:i]...)
+				newSegs = append(newSegs, aliasSegs...)
+				newSegs = append(newSegs, segs[i+1:]...)
+				segs = newSegs
+				i--
+				continue
+			}
 		}
-		return full
+
+		rel := curr.Relations[seg]
+		if rel == nil || rel._ModelRef == nil {
+			break
+		}
+		curr = rel._ModelRef
 	}
-	return path
+
+	return strings.Join(segs, ".")
 }
 
 // normalizeFiltersWithAliases разворачивает алиасы в ключах фильтров (часть до "__").
 func NormalizeFiltersWithAliases(m *Model, filters map[string]any) map[string]any {
-	if m == nil || len(m.Aliases) == 0 || len(filters) == 0 {
+	if m == nil || len(filters) == 0 {
 		return filters
 	}
 	changed := false
@@ -58,7 +74,7 @@ func NormalizeFiltersWithAliases(m *Model, filters map[string]any) map[string]an
 
 // normalizeSortsWithAliases разворачивает алиасы в сортировках.
 func NormalizeSortsWithAliases(m *Model, sorts []string) []string {
-	if m == nil || len(m.Aliases) == 0 || len(sorts) == 0 {
+	if m == nil || len(sorts) == 0 {
 		return sorts
 	}
 	changed := false
