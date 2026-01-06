@@ -22,6 +22,9 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	// 0.5 применяем алиасы для простых полей (заменяем source ключ на alias)
 	applyFieldAliases(p, items)
 
+	// 0.6 сворачиваем пустые belongs_to контейнеры в nil
+	collapseEmptyBelongsTo(m, p, items, "")
+
 	// локализация
 	if model.HasLocales {
 		applyLocalization(m, p, items) // или locale из запроса
@@ -94,6 +97,121 @@ func applyFieldAliases(p *model.DataPreset, items []map[string]any) {
 			if v, ok := items[i][src]; ok {
 				items[i][dst] = v
 				delete(items[i], src)
+			}
+		}
+	}
+}
+
+// collapseEmptyBelongsTo заменяет контейнер belongs_to на nil, если внутри только nil-значения.
+func collapseEmptyBelongsTo(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) {
+	if m == nil || p == nil || len(items) == 0 {
+		return
+	}
+
+	fieldKey := func(f *model.Field) string {
+		if strings.TrimSpace(f.Alias) != "" {
+			return f.Alias
+		}
+		return f.Source
+	}
+
+	getMapAt := func(root map[string]any, path string) (map[string]any, bool) {
+		cur := any(root)
+		for _, seg := range strings.Split(path, ".") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			mm, ok := cur.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			cur, ok = mm[seg]
+			if !ok {
+				return nil, false
+			}
+		}
+		mm, ok := cur.(map[string]any)
+		return mm, ok
+	}
+
+	setPathToNil := func(root map[string]any, path string) {
+		segs := strings.Split(path, ".")
+		if len(segs) == 0 {
+			return
+		}
+		parent := root
+		for i := 0; i < len(segs)-1; i++ {
+			next, ok := parent[segs[i]].(map[string]any)
+			if !ok {
+				return
+			}
+			parent = next
+		}
+		parent[segs[len(segs)-1]] = nil
+	}
+
+	var isEmptyMap func(map[string]any) bool
+	isEmptyMap = func(mm map[string]any) bool {
+		if len(mm) == 0 {
+			return true
+		}
+		for _, v := range mm {
+			switch vv := v.(type) {
+			case nil:
+				continue
+			case map[string]any:
+				if isEmptyMap(vv) {
+					continue
+				}
+			case []any:
+				if len(vv) == 0 {
+					continue
+				}
+			case []map[string]any:
+				if len(vv) == 0 {
+					continue
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	}
+
+	for _, f := range p.Fields {
+		if f.Type != "preset" {
+			continue
+		}
+		rel := m.Relations[f.Source]
+		if rel == nil || rel.Type != "belongs_to" {
+			continue
+		}
+		nestedModel := rel.GetModelRef()
+		var nested *model.DataPreset
+		if nestedModel != nil {
+			if f.GetPresetRef() != nil {
+				nested = f.GetPresetRef()
+			} else if f.NestedPreset != "" {
+				nested = nestedModel.Presets[f.NestedPreset]
+			}
+		}
+		if nested != nil {
+			nextPrefix := prefixFor(prefix, f.Source)
+			collapseEmptyBelongsTo(nestedModel, nested, items, nextPrefix)
+		}
+
+		paths := []string{prefixFor(prefix, f.Source)}
+		if alt := fieldKey(&f); alt != f.Source {
+			paths = append(paths, prefixFor(prefix, alt))
+		}
+
+		for i := range items {
+			for _, pth := range paths {
+				if mm, ok := getMapAt(items[i], pth); ok && isEmptyMap(mm) {
+					setPathToNil(items[i], pth)
+					break
+				}
 			}
 		}
 	}
