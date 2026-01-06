@@ -46,23 +46,38 @@ func buildOrderSorts(order string, prefix string) []string {
 		}
 	}
 	// стабильный тай-брейкер
+	// добавляем только если нет сортировки по id (любой направленности)
+	targetID := "id"
 	if prefix != "" {
-		sorts = append(sorts, prefix+"id ASC")
-	} else {
-		sorts = append(sorts, "id ASC")
+		targetID = prefix + "id"
+	}
+	hasID := false
+	for _, s := range sorts {
+		if fld := strings.Fields(s); len(fld) > 0 && strings.EqualFold(fld[0], targetID) {
+			hasID = true
+			break
+		}
+	}
+	if !hasID {
+		if prefix != "" {
+			sorts = append(sorts, targetID+" ASC")
+		} else {
+			sorts = append(sorts, "id ASC")
+		}
 	}
 	return sorts
 }
+
 // internal/resolver/through.go
 func MakeThroughChildRequest(
-	parent *model.Model,         // родительская модель (напр. Project)
-	rel    *model.ModelRelation, // связь из родителя (напр. persons/email/owner)
-	nestedPreset string,         // пресет конечной модели (напр. "item")
-	parentIDs []any,             // список PK родителя из главного селекта
+	parent *model.Model, // родительская модель (напр. Project)
+	rel *model.ModelRelation, // связь из родителя (напр. persons/email/owner)
+	nestedPreset string, // пресет конечной модели (напр. "item")
+	parentIDs []any, // список PK родителя из главного селекта
 ) (IndexRequest, error) {
 
 	through := rel.GetThroughRef() // промежуточная модель (напр. ProjectMember / PersonContact)
-	final   := rel.GetModelRef()   // конечная модель (напр. Person / Contact)
+	final := rel.GetModelRef()     // конечная модель (напр. Person / Contact)
 	if through == nil || final == nil {
 		return IndexRequest{}, fmt.Errorf("through or final model is nil")
 	}
@@ -130,13 +145,13 @@ func MakeThroughChildRequest(
 	}
 
 	req := IndexRequest{
-		Model:      throughModelName,
-		Preset:     "",
-		PresetObj:  synthetic,
-		Filters:    map[string]any{fk + "__in": parentIDs},
-		Sorts:      buildOrderSorts(rel.Order, unwrapKey+"."),
-		Offset:     0,
-		Limit:      maxLimit,
+		Model:       throughModelName,
+		Preset:      "",
+		PresetObj:   synthetic,
+		Filters:     map[string]any{fk + "__in": parentIDs},
+		Sorts:       buildOrderSorts(rel.Order, unwrapKey+"."),
+		Offset:      0,
+		Limit:       maxLimit,
 		UnwrapField: unwrapKey, // просим развернуть контейнер до конечной модели
 	}
 
@@ -151,27 +166,27 @@ func MakeThroughChildRequest(
 		if key, val, ok := parseCondition(rel.Where); ok {
 			req.Filters[unwrapKey+"."+key] = val
 		}
-	}	
+	}
 	return req, nil
 }
 
 func makeSyntheticPreset(orig *model.DataPreset, fk string) *model.DataPreset {
-    // Копируем оригинальные поля
-    fields := make([]model.Field, 0, len(orig.Fields)+1)
-    
-    // Добавляем FK первым полем
-    fields = append(fields, model.Field{
-        Source: fk,
-        Type:   "int",
-        Alias:  fk,
-    })
+	// Копируем оригинальные поля
+	fields := make([]model.Field, 0, len(orig.Fields)+1)
 
-    // Копируем остальные
-    fields = append(fields, orig.Fields...)
+	// Добавляем FK первым полем
+	fields = append(fields, model.Field{
+		Source: fk,
+		Type:   "int",
+		Alias:  fk,
+	})
 
-    return &model.DataPreset{
-				Name: orig.Name, 
-        Fields: fields,
-				FieldsAliasMap: orig.FieldsAliasMap, // сохраняем карту алиасов
-    }
+	// Копируем остальные
+	fields = append(fields, orig.Fields...)
+
+	return &model.DataPreset{
+		Name:           orig.Name,
+		Fields:         fields,
+		FieldsAliasMap: orig.FieldsAliasMap, // сохраняем карту алиасов
+	}
 }
