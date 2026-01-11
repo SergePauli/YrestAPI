@@ -5,7 +5,35 @@ import (
 	"strings"
 )
 
-var placeholderRe = regexp.MustCompile(`\{([^}]+)\}`)
+// допускаем пустой плейсхолдер {} для ссылки на базовый алиас
+var placeholderRe = regexp.MustCompile(`\{([^}]*)\}`)
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func isSQLKeyword(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "select", "from", "where", "and", "or", "not", "null", "true", "false",
+		"like", "ilike", "similar", "between", "as", "case", "when", "then", "else", "end",
+		"on", "inner", "left", "right", "full", "cross", "join", "union", "all", "distinct",
+		"order", "by", "group", "limit", "offset", "having", "exists", "in", "is", "over",
+		"partition", "filter", "returning", "with", "update", "into", "delete",
+		// типы
+		"int", "integer", "bigint", "smallint", "serial", "bigserial", "real", "float", "float8", "double", "double precision",
+		"numeric", "decimal", "boolean", "bool", "text", "varchar", "character", "char", "timestamp", "date", "time", "interval":
+		return true
+	default:
+		return false
+	}
+}
+
+func quoteIfNeeded(name string) string {
+	if name == "" || name == "*" {
+		return name
+	}
+	if identRe.MatchString(name) && !isSQLKeyword(name) {
+		return name
+	}
+	return quoteIdentifier(name)
+}
 
 // isSubquerySource проверяет, начинается ли source с '(' — маркер подзапроса.
 func isSubquerySource(src string) bool {
@@ -32,14 +60,15 @@ func extractPathsFromExpr(expr string) []string {
 	if expr == "" {
 		return nil
 	}
-	matches := placeholderRe.FindAllStringSubmatch(expr, -1)
+	matches := placeholderRe.FindAllStringSubmatchIndex(expr, -1)
 	set := make(map[string]struct{}, len(matches))
 	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 2 {
+	for _, idx := range matches {
+		if len(idx) < 4 {
 			continue
 		}
-		p := strings.TrimSpace(m[1])
+		start, end := idx[2], idx[3]
+		p := strings.TrimSpace(expr[start:end])
 		if p == "" {
 			continue
 		}
@@ -59,14 +88,19 @@ func applyAliasPlaceholders(expr string, aliasMap *AliasMap, basePath string) st
 	if aliasMap == nil || expr == "" {
 		return expr
 	}
+
+	baseAlias := func() string {
+		if basePath == "" {
+			return "main"
+		}
+		if a, ok := aliasMap.PathToAlias[basePath]; ok {
+			return a
+		}
+		return ""
+	}
 	matches := placeholderRe.FindAllStringSubmatchIndex(expr, -1)
 	if len(matches) == 0 {
-		alias := ""
-		if basePath == "" {
-			alias = "main"
-		} else if a, ok := aliasMap.PathToAlias[basePath]; ok {
-			alias = a
-		}
+		alias := baseAlias()
 		if alias == "" {
 			return expr
 		}
@@ -84,31 +118,41 @@ func applyAliasPlaceholders(expr string, aliasMap *AliasMap, basePath string) st
 		path := strings.TrimSpace(expr[pathStart:pathEnd])
 		repl := expr[start:end] // fallback
 
-		if path != "" && aliasMap != nil {
+		if aliasMap != nil {
 			hasDotNext := end < len(expr) && expr[end] == '.'
-			segments := strings.Split(path, ".")
-			col := segments[len(segments)-1]
-			relPrefix := strings.Join(segments[:len(segments)-1], ".")
-			aliasLookup := relPrefix
-			if basePath != "" {
-				if aliasLookup != "" {
-					aliasLookup = basePath + "." + aliasLookup
-				} else {
-					aliasLookup = basePath
-				}
-			}
-			if aliasLookup == "" {
-				if relPrefix != "" {
-					aliasLookup = relPrefix
-				} else {
-					aliasLookup = path
-				}
-			}
-			if alias, ok := aliasMap.PathToAlias[aliasLookup]; ok && strings.TrimSpace(alias) != "" {
-				if hasDotNext {
+			if path == "" {
+				if alias := baseAlias(); alias != "" {
 					repl = alias
-				} else {
-					repl = alias + "." + col
+				}
+			} else {
+				segments := strings.Split(path, ".")
+				col := segments[len(segments)-1]
+				relPrefix := strings.Join(segments[:len(segments)-1], ".")
+				aliasLookup := relPrefix
+				if basePath != "" {
+					if aliasLookup != "" {
+						aliasLookup = basePath + "." + aliasLookup
+					} else {
+						aliasLookup = basePath
+					}
+				}
+				if aliasLookup == "" {
+					if relPrefix != "" {
+						aliasLookup = relPrefix
+					} else {
+						aliasLookup = path
+					}
+				}
+				if alias, ok := aliasMap.PathToAlias[aliasLookup]; ok && strings.TrimSpace(alias) != "" {
+					quotedCol := quoteIfNeeded(col)
+					if hasDotNext {
+						repl = alias
+					} else if relPrefix == "" && len(segments) == 1 {
+						// одиночный плейсхолдер связи — трактуем как алиас таблицы
+						repl = alias
+					} else {
+						repl = alias + "." + quotedCol
+					}
 				}
 			}
 		}
@@ -120,12 +164,7 @@ func applyAliasPlaceholders(expr string, aliasMap *AliasMap, basePath string) st
 	b.WriteString(expr[last:])
 	out := b.String()
 
-	alias := ""
-	if basePath == "" {
-		alias = "main"
-	} else if a, ok := aliasMap.PathToAlias[basePath]; ok {
-		alias = a
-	}
+	alias := baseAlias()
 	if alias == "" {
 		return out
 	}
@@ -137,13 +176,6 @@ func qualifyBareIdentifiers(expr, alias string) string {
 		return expr
 	}
 
-	keywords := map[string]struct{}{
-		"select": {}, "from": {}, "where": {}, "and": {}, "or": {}, "not": {}, "null": {}, "true": {}, "false": {},
-		"like": {}, "ilike": {}, "similar": {}, "between": {}, "as": {}, "case": {}, "when": {}, "then": {}, "else": {}, "end": {},
-		"on": {}, "inner": {}, "left": {}, "right": {}, "full": {}, "cross": {}, "join": {}, "union": {}, "all": {}, "distinct": {},
-		"order": {}, "by": {}, "group": {}, "limit": {}, "offset": {}, "having": {}, "exists": {}, "in": {}, "is": {}, "over": {},
-		"partition": {}, "filter": {}, "returning": {}, "with": {},
-	}
 	skipAfter := map[string]int{
 		"from":   2,
 		"join":   2,
@@ -212,7 +244,7 @@ func qualifyBareIdentifiers(expr, alias string) string {
 			if c, ok := skipAfter[lower]; ok {
 				skipNext = c
 			}
-			if _, isKeyword := keywords[lower]; isKeyword {
+			if isSQLKeyword(lower) {
 				b.WriteString(ident)
 				continue
 			}

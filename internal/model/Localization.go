@@ -83,7 +83,7 @@ func LoadLocales(locale string) error {
 	}
 
 	ActiveDict = parseNodeMap(raw)
-	log.Printf("✅ Loaded locale %s with %+v entries", locale, ActiveDict["used"])
+	log.Printf("✅ Loaded locale %s with %+v entries", locale, len(ActiveDict))
 	return nil
 }
 

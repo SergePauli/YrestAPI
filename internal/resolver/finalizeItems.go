@@ -515,6 +515,13 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			if path == "" {
 				continue
 			}
+			if prefix != "" {
+				if strings.HasPrefix(path, ".") {
+					path = prefix + path
+				} else {
+					path = prefix + "." + path
+				}
+			}
 			targetKey := f.Alias
 			if strings.TrimSpace(targetKey) == "" {
 				targetKey = path

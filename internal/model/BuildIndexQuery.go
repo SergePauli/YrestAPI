@@ -94,6 +94,15 @@ func (m *Model) BuildIndexQuery(
 	for _, c := range selectCols {
 		colExprs = append(colExprs, c.Expr)
 	}
+	// если есть has_many JOIN — будем группировать по простым колонкам, чтобы агрегаты в computable работали
+	groupByCols := make([]string, 0)
+	if hasDistinct {
+		for _, expr := range colExprs {
+			if isSimpleColumnExpr(expr) {
+				groupByCols = append(groupByCols, expr)
+			}
+		}
+	}
 
 	// 4. WHERE фильтры
 	whereBuilder, err := m.buildWhereClause(aliasMap, preset, filters, joinSpecs)
@@ -169,11 +178,12 @@ func (m *Model) BuildIndexQuery(
 		addSelectExpr(fmt.Sprintf("%s.%s", alias, fieldName))
 	}
 
-	if hasDistinct {
+	sb = sb.Columns(colExprs...)
+	if hasDistinct && len(groupByCols) > 0 {
+		sb = sb.GroupBy(groupByCols...)
+	} else if hasDistinct {
 		sb = sb.Distinct()
 	}
-
-	sb = sb.Columns(colExprs...)
 
 	for _, expr := range orderExprs {
 		sb = sb.OrderBy(expr)
@@ -188,4 +198,25 @@ func (m *Model) BuildIndexQuery(
 	}
 
 	return sb, nil
+}
+
+// isSimpleColumnExpr определяет, является ли выражение простым обращением к колонке alias.column (с кавычками/без).
+func isSimpleColumnExpr(expr string) bool {
+	e := strings.TrimSpace(expr)
+	if e == "" {
+		return false
+	}
+	// убираем возможный AS alias хвост
+	if idx := strings.LastIndex(strings.ToLower(e), " as "); idx > 0 {
+		e = strings.TrimSpace(e[:idx])
+	}
+	// простейшие варианты: alias.col, "alias".col, alias."col", "alias"."col"
+	if strings.ContainsAny(e, " ()+") {
+		return false
+	}
+	dot := strings.IndexByte(e, '.')
+	if dot <= 0 || dot >= len(e)-1 {
+		return false
+	}
+	return true
 }

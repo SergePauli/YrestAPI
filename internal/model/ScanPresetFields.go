@@ -3,7 +3,7 @@ package model
 import "strings"
 
 // ScanPresetFields возвращает список полей пресета для belongs_to связей
-func (m *Model) ScanPresetFields(preset *DataPreset, prefix string) []string {	
+func (m *Model) ScanPresetFields(preset *DataPreset, prefix string) []string {
 
 	out := make([]string, 0)
 	seen := make(map[string]bool)
@@ -18,6 +18,21 @@ func (m *Model) ScanPresetFields(preset *DataPreset, prefix string) []string {
 	for _, f := range preset.Fields {
 		// только поля типа "preset" рассматриваем как ссылку на связь
 		if f.Type != "preset" {
+			// но вытащим пути из плейсхолдеров nested_field/formatter, чтобы aliasMap знал про связи
+			if f.Type == "nested_field" || f.Type == "formatter" {
+				for _, p := range extractPathsFromExpr(f.Source) {
+					full := p
+					if prefix != "" {
+						trimmed := strings.TrimSuffix(prefix, ".")
+						if trimmed != "" {
+							full = trimmed + "." + p
+						}
+					}
+					if idx := strings.LastIndex(full, "."); idx > 0 {
+						appendOnce(full[:idx])
+					}
+				}
+			}
 			continue
 		}
 
@@ -41,14 +56,14 @@ func (m *Model) ScanPresetFields(preset *DataPreset, prefix string) []string {
 		// сформируем путь
 		var path string
 		if prefix == "" {
-			path = relKey +"."
+			path = relKey + "."
 		} else {
 			// если prefix уже оканчивается на точку – не добавляем ещё одну
-    	if strings.HasSuffix(prefix, ".") {
-        path = prefix + relKey+"."
-    	} else {
-        path = prefix + "." + relKey
-    	}
+			if strings.HasSuffix(prefix, ".") {
+				path = prefix + relKey + "."
+			} else {
+				path = prefix + "." + relKey
+			}
 		}
 		appendOnce(path)
 
