@@ -144,12 +144,45 @@ func (m *Model) BuildIndexQuery(
 			existingSelect[key] = struct{}{}
 		}
 
-		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fieldPath); ok {
-			if dir != "" {
-				expr += " " + dir
+		handled := false
+
+		// если сортировка совпадает с alias поля пресета — сортируем по нему
+		if preset != nil {
+			for _, f := range preset.Fields {
+				aliasName := strings.TrimSpace(f.Alias)
+				if aliasName == "" {
+					aliasName = f.Source
+				}
+				if aliasName == fieldPath {
+					if expr, ok := m.resolveFieldExpression(preset, aliasMap, f.Source); ok {
+						baseExpr := strings.TrimSpace(expr)
+						if baseExpr == "" {
+							continue
+						}
+						orderExpr := baseExpr
+						if dir != "" {
+							orderExpr += " " + dir
+						}
+						orderExprs = append(orderExprs, orderExpr)
+						addSelectExpr(baseExpr)
+						handled = true
+						break
+					}
+				}
 			}
-			orderExprs = append(orderExprs, expr)
-			addSelectExpr(strings.Fields(expr)[0])
+		}
+		if handled {
+			continue
+		}
+
+		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fieldPath); ok {
+			baseExpr := strings.TrimSpace(expr)
+			orderExpr := baseExpr
+			if dir != "" {
+				orderExpr += " " + dir
+			}
+			orderExprs = append(orderExprs, orderExpr)
+			addSelectExpr(baseExpr)
 			continue
 		}
 

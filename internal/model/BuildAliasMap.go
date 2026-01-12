@@ -142,18 +142,32 @@ func PathsFromFilters(filters map[string]interface{}) []string {
 		return nil
 	}
 	out := make([]string, 0, len(filters))
-	for key := range filters {
-		base := key
-		if idx := strings.Index(key, "__"); idx >= 0 {
-			base = key[:idx]
-		}
-		fields, _ := ParseCompositeField(base)
-		for _, f := range fields {
-			if i := strings.LastIndex(f, "."); i >= 0 {
-				out = append(out, f[:i])
+
+	var walk func(map[string]interface{})
+	walk = func(f map[string]interface{}) {
+		for key, val := range f {
+			// группирующие ключи
+			if (key == "or" || key == "and") && val != nil {
+				if sub, ok := val.(map[string]interface{}); ok {
+					walk(sub)
+					continue
+				}
+			}
+
+			base := key
+			if idx := strings.Index(key, "__"); idx >= 0 {
+				base = key[:idx]
+			}
+			fields, _ := ParseCompositeField(base)
+			for _, fld := range fields {
+				if i := strings.LastIndex(fld, "."); i >= 0 {
+					out = append(out, fld[:i])
+				}
 			}
 		}
 	}
+	walk(filters)
+
 	return dedup(out)
 }
 
