@@ -59,7 +59,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	// функция, восстанавливающая поля из aliasMap
 	items, err := m.ScanFlatRows(rows, preset, aliasMap)
-	log.Printf("Resolver: main items: %+v", items)
+	//log.Printf("Resolver: main items: %+v", items)
 	if err != nil {
 		return nil, err
 	}

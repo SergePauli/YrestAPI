@@ -74,6 +74,18 @@ func (m *Model) BuildIndexQuery(
 	if err != nil {
 		return sb, err
 	}
+	cteSpecs, computableOverride, skipAliases := buildHasManyCTEs(m, preset, filters, sorts, aliasMap, joinSpecs)
+	if len(cteSpecs) > 0 {
+		prefixSQL, prefixArgs, err := buildCTEQueries(m, cteSpecs)
+		if err != nil {
+			return sb, err
+		}
+		sb = sb.Prefix(prefixSQL, prefixArgs...)
+		for _, spec := range cteSpecs {
+			sb = sb.LeftJoin(fmt.Sprintf("%s ON %s.id = main.id", spec.Name, spec.Name))
+		}
+	}
+	joinSpecs = filterJoinSpecs(joinSpecs, skipAliases)
 
 	hasDistinct := false
 	for i := 0; i < len(joinSpecs); i++ {
@@ -89,6 +101,26 @@ func (m *Model) BuildIndexQuery(
 	}
 	// 3.1. Добавляем поля из пресета
 	selectCols := m.ScanColumns(preset, aliasMap, "")
+	if len(computableOverride) > 0 && preset != nil {
+		overrideByAlias := make(map[string]string, len(computableOverride))
+		for _, f := range preset.Fields {
+			if f.Type != "computable" {
+				continue
+			}
+			aliasName := strings.TrimSpace(f.Alias)
+			if aliasName == "" {
+				aliasName = f.Source
+			}
+			if expr, ok := computableOverride[f.Source]; ok {
+				overrideByAlias[aliasName] = fmt.Sprintf("%s AS %s", expr, quoteIdentifier(aliasName))
+			}
+		}
+		for i := range selectCols {
+			if expr, ok := overrideByAlias[selectCols[i].Key]; ok {
+				selectCols[i].Expr = expr
+			}
+		}
+	}
 
 	colExprs := make([]string, 0, len(selectCols))
 	for _, c := range selectCols {
@@ -99,18 +131,37 @@ func (m *Model) BuildIndexQuery(
 	if hasDistinct {
 		for _, expr := range colExprs {
 			if isSimpleColumnExpr(expr) {
-				groupByCols = append(groupByCols, expr)
+				groupByCols = append(groupByCols, baseColumnExpr(expr))
+			}
+		}
+		if aliasMap != nil && len(computableOverride) == 0 {
+			hasManyAliases := make(map[string]struct{})
+			for path, alias := range aliasMap.PathToAlias {
+				if isHasManyPath(m, path) {
+					hasManyAliases[alias] = struct{}{}
+				}
+			}
+			compExprs := collectComputableExprsForRequest(m, preset, filters, sorts, aliasMap)
+			for _, expr := range compExprs {
+				for _, col := range extractQualifiedColumns(expr, hasManyAliases) {
+					if !containsString(groupByCols, col) {
+						groupByCols = append(groupByCols, col)
+					}
+				}
 			}
 		}
 	}
 
 	// 4. WHERE фильтры
-	whereBuilder, err := m.buildWhereClause(aliasMap, preset, filters, joinSpecs)
+	whereBuilder, havingBuilder, err := m.buildWhereClause(aliasMap, preset, filters, joinSpecs, computableOverride)
 	if err != nil {
 		return sb, err
 	}
 	if whereBuilder != nil {
 		sb = sb.Where(whereBuilder)
+	}
+	if havingBuilder != nil {
+		sb = sb.Having(havingBuilder)
 	}
 
 	// 5. ORDER BY
@@ -142,6 +193,16 @@ func (m *Model) BuildIndexQuery(
 			selectCols = append(selectCols, SelectColumn{Expr: expr, Key: "", Type: ""})
 			colExprs = append(colExprs, expr)
 			existingSelect[key] = struct{}{}
+		}
+
+		if expr, ok := computableOverride[fieldPath]; ok {
+			orderExpr := expr
+			if dir != "" {
+				orderExpr += " " + dir
+			}
+			orderExprs = append(orderExprs, orderExpr)
+			addSelectExpr(expr)
+			continue
 		}
 
 		handled := false
@@ -252,4 +313,15 @@ func isSimpleColumnExpr(expr string) bool {
 		return false
 	}
 	return true
+}
+
+func baseColumnExpr(expr string) string {
+	e := strings.TrimSpace(expr)
+	if e == "" {
+		return e
+	}
+	if idx := strings.LastIndex(strings.ToLower(e), " as "); idx > 0 {
+		e = strings.TrimSpace(e[:idx])
+	}
+	return e
 }

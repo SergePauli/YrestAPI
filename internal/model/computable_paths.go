@@ -57,3 +57,49 @@ func collectComputablePathsForRequest(m *Model, preset *DataPreset, filters map[
 	}
 	return out
 }
+
+// collectComputableExprsForRequest возвращает выражения computable полей, используемых в запросе.
+func collectComputableExprsForRequest(m *Model, preset *DataPreset, filters map[string]interface{}, sorts []string, aliasMap *AliasMap) []string {
+	if m == nil || len(m.Computable) == 0 {
+		return nil
+	}
+
+	used := make(map[string]struct{})
+
+	if preset != nil {
+		for _, f := range preset.Fields {
+			if _, ok := m.Computable[f.Source]; ok {
+				used[f.Source] = struct{}{}
+			}
+		}
+	}
+
+	for key := range filters {
+		base := key
+		if i := strings.Index(key, "__"); i >= 0 {
+			base = key[:i]
+		}
+		if _, ok := m.Computable[base]; ok {
+			used[base] = struct{}{}
+		}
+	}
+
+	for _, s := range sorts {
+		parts := strings.Fields(s)
+		if len(parts) == 0 {
+			continue
+		}
+		field := parts[0]
+		if _, ok := m.Computable[field]; ok {
+			used[field] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(used))
+	for name := range used {
+		if expr, ok := m.resolveFieldExpression(preset, aliasMap, name); ok && strings.TrimSpace(expr) != "" {
+			out = append(out, expr)
+		}
+	}
+	return out
+}

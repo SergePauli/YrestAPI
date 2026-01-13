@@ -64,6 +64,14 @@ Payload:
 - `preset` — preset name inside the model.
 - `filters` — map of `field__op: value`.
   - Operators: `__eq` (default), `__cnt` (LIKE %v%), `__start` (LIKE v%), `__end` (%v), `__lt`, `__lte`, `__gt`, `__gte`, `__in`.
+  - Null checks: `field__null: true` → `IS NULL`, `field__null: false` → `IS NOT NULL` (aliases: `field__is_null`, `field__not_null`).
+  - Grouping: use `or` / `and` keys to nest conditions, e.g.:
+    ```json
+    {
+      "or": { "id__in": [0, 1], "id__null": true },
+      "status_id__null": false
+    }
+    ```
   - Composite fields: join multiple paths with `_or_` / `_and_`, e.g. `org.name_or_org.full_name__cnt` → `(org.name LIKE ...) OR (org.full_name LIKE ...)`.
   - Short aliases: if a model defines `aliases:` (e.g. `org: "contragent.organization"`), you can use the short name in filters/sorts; it is expanded automatically.
   - Computable fields: declared under `computable:` in the model and usable in filters/sorts by name (`fio__cnt`).
@@ -83,11 +91,11 @@ Payload:
 - Error response examples:
   - 400 Bad Request — invalid JSON / unknown model or preset:
     ```json
-    {"error": "preset not found: Person.card"}
+    { "error": "preset not found: Person.card" }
     ```
   - 500 Internal Server Error — SQL/build issues:
     ```json
-    {"error": "Failed to resolve data: ERROR: column t4.fio does not exist (SQLSTATE 42703)"}
+    { "error": "Failed to resolve data: ERROR: column t4.fio does not exist (SQLSTATE 42703)" }
     ```
 
 ### `/api/count`
@@ -118,13 +126,13 @@ Notes:
 
 Configuration is read from environment variables (see `internal/config/config.go`):
 
-| Env var        | Default                                           | Description                                |
-|----------------|---------------------------------------------------|--------------------------------------------|
-| `PORT`         | `8080`                                            | HTTP port for the API server               |
-| `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string |
-| `REDIS_ADDR`   | `localhost:6379`                                  | Redis address for alias map caching        |
-| `MODELS_DIR`   | `./db`                                            | Path to directory with YAML model files    |
-| `LOCALE`       | `en`                                              | Default locale for localization            |
+| Env var        | Default                                                           | Description                             |
+| -------------- | ----------------------------------------------------------------- | --------------------------------------- |
+| `PORT`         | `8080`                                                            | HTTP port for the API server            |
+| `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string            |
+| `REDIS_ADDR`   | `localhost:6379`                                                  | Redis address for alias map caching     |
+| `MODELS_DIR`   | `./db`                                                            | Path to directory with YAML model files |
+| `LOCALE`       | `en`                                                              | Default locale for localization         |
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
 
@@ -144,19 +152,19 @@ You can provide a `.env` file in the project root; variables from it override de
 ### Model YAML structure (critical nodes)
 
 ```yaml
-table: people                  # required: DB table name
-aliases:                       # optional: short paths → full relation paths
+table: people # required: DB table name
+aliases: # optional: short paths → full relation paths
   org: "contragent.organization"
-computable:                    # optional: global computed fields
+computable: # optional: global computed fields
   fio:
     source: "(select concat({surname}, ' ', {name}, ' ', {patrname}))"
     type: string
-relations:                     # required if presets reference other models
+relations: # required if presets reference other models
   person_name:
     model: PersonName
-    type: has_one              # has_one / has_many / belongs_to
-    where: .used = true        # optional; leading dot is replaced by SQL alias
-presets:                       # at least one preset to serve data
+    type: has_one # has_one / has_many / belongs_to
+    where: .used = true # optional; leading dot is replaced by SQL alias
+presets: # at least one preset to serve data
   card:
     fields:
       - source: id
@@ -164,12 +172,13 @@ presets:                       # at least one preset to serve data
       - source: person_name
         type: preset
         preset: item
-      - source: "fio"          # computable usage
+      - source: "fio" # computable usage
         type: computable
         alias: full_name
 ```
 
 Key points:
+
 - `table` is mandatory; `relations` define the graph (with optional `through`, `where`, `order`, `polymorphic`).
 - `presets` describe which fields to select/return; `type: preset` walks relations, `type: computable` inserts expressions, `type: formatter` post-processes values, `type: nested_field` copies nested JSON branches.
 - `computable` and `aliases` are global per model and can be used in any preset, filter, or sort.

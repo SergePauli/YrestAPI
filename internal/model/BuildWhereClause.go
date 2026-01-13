@@ -3,20 +3,34 @@ package model
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
 )
+
+var aggregateRe = regexp.MustCompile(`(?i)\b(sum|count|avg|min|max)\s*\(`)
+
+func isAggregateExpr(expr string) bool {
+	return aggregateRe.MatchString(expr)
+}
 
 func (m *Model) buildWhereClause(
 	aliasMap *AliasMap,
 	preset *DataPreset,
 	filters map[string]any,
 	joins []*JoinSpec,
-) (squirrel.Sqlizer, error) {
-	var buildGroup func(map[string]any, string) squirrel.Sqlizer
+	computableOverride map[string]string,
+) (squirrel.Sqlizer, squirrel.Sqlizer, error) {
+	var buildGroupExpr func(map[string]any, string) (squirrel.Sqlizer, bool)
+	var buildGroupAnd func(map[string]any) (squirrel.Sqlizer, squirrel.Sqlizer)
 
 	resolveField := func(fld string) string {
+		if computableOverride != nil {
+			if expr, ok := computableOverride[fld]; ok && strings.TrimSpace(expr) != "" {
+				return expr
+			}
+		}
 		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fld); ok {
 			return expr
 		}
@@ -33,19 +47,54 @@ func (m *Model) buildWhereClause(
 		return fmt.Sprintf("main.%s", fld)
 	}
 
-	buildCond := func(field, op string, val any) []squirrel.Sqlizer {
+	resolveComputableAlias := func(field string) string {
+		if preset == nil {
+			return ""
+		}
+		for _, f := range preset.Fields {
+			if f.Type != "computable" {
+				continue
+			}
+			if f.Source != field {
+				continue
+			}
+			alias := strings.TrimSpace(f.Alias)
+			if alias == "" {
+				alias = f.Source
+			}
+			if alias != "" {
+				return quoteIdentifier(alias)
+			}
+		}
+		return ""
+	}
+
+	buildCond := func(field, op string, val any) ([]squirrel.Sqlizer, bool) {
 		fields, comb := ParseCompositeField(field)
 		parts := make([]squirrel.Sqlizer, 0, len(fields))
+		hasAgg := false
 
 		for _, f := range fields {
-			sqlField := resolveField(f)
-			if sqlField == "" {
+			expr := resolveField(f)
+			if expr == "" {
 				continue
+			}
+			sqlField := expr
+			agg := isAggregateExpr(expr)
+			if agg {
+				if alias := resolveComputableAlias(f); alias != "" {
+					sqlField = alias
+				}
+				hasAgg = true
 			}
 			var cond squirrel.Sqlizer
 			switch op {
 			case "eq":
-				cond = squirrel.Eq{sqlField: val}
+				if b, ok := val.(bool); ok && !b && agg {
+					cond = squirrel.Expr(fmt.Sprintf("(%s = false AND %s IS NOT NULL)", sqlField, sqlField))
+				} else {
+					cond = squirrel.Eq{sqlField: val}
+				}
 			case "in":
 				cond = squirrel.Eq{sqlField: val} // поддерживает slice
 			case "lt":
@@ -90,28 +139,32 @@ func (m *Model) buildWhereClause(
 		}
 
 		if len(parts) == 0 {
-			return nil
+			return nil, false
 		}
 		if comb == "_or_" && len(parts) > 1 {
-			return []squirrel.Sqlizer{squirrel.Or(parts)}
+			return []squirrel.Sqlizer{squirrel.Or(parts)}, hasAgg
 		}
 		if comb == "_and_" && len(parts) > 1 {
-			return []squirrel.Sqlizer{squirrel.And(parts)}
+			return []squirrel.Sqlizer{squirrel.And(parts)}, hasAgg
 		}
-		return []squirrel.Sqlizer{parts[0]}
+		return []squirrel.Sqlizer{parts[0]}, hasAgg
 	}
 
-	buildGroup = func(f map[string]any, mode string) squirrel.Sqlizer {
+	buildGroupExpr = func(f map[string]any, mode string) (squirrel.Sqlizer, bool) {
 		if len(f) == 0 {
-			return nil
+			return nil, false
 		}
 		var exprs []squirrel.Sqlizer
+		hasAgg := false
 		for key, val := range f {
 			// группирующие ключи or/and
 			if key == "or" || key == "and" {
 				if sub, ok := val.(map[string]any); ok {
-					if nested := buildGroup(sub, key); nested != nil {
+					if nested, nestedAgg := buildGroupExpr(sub, key); nested != nil {
 						exprs = append(exprs, nested)
+						if nestedAgg {
+							hasAgg = true
+						}
 					}
 					continue
 				}
@@ -124,23 +177,85 @@ func (m *Model) buildWhereClause(
 				op = parts[1]
 			}
 
-			if conds := buildCond(field, op, val); len(conds) > 0 {
+			if conds, condAgg := buildCond(field, op, val); len(conds) > 0 {
 				exprs = append(exprs, conds...)
+				if condAgg {
+					hasAgg = true
+				}
 			}
 		}
 
 		if len(exprs) == 0 {
-			return nil
+			return nil, false
 		}
 		if mode == "or" {
-			return squirrel.Or(exprs)
+			return squirrel.Or(exprs), hasAgg
 		}
-		return squirrel.And(exprs)
+		return squirrel.And(exprs), hasAgg
 	}
 
-	where := buildGroup(filters, "and")
-	if where == nil {
-		return nil, nil
+	buildGroupAnd = func(f map[string]any) (squirrel.Sqlizer, squirrel.Sqlizer) {
+		if len(f) == 0 {
+			return nil, nil
+		}
+		var whereParts []squirrel.Sqlizer
+		var havingParts []squirrel.Sqlizer
+
+		for key, val := range f {
+			if key == "or" {
+				if sub, ok := val.(map[string]any); ok {
+					if expr, agg := buildGroupExpr(sub, "or"); expr != nil {
+						if agg {
+							havingParts = append(havingParts, expr)
+						} else {
+							whereParts = append(whereParts, expr)
+						}
+					}
+				}
+				continue
+			}
+			if key == "and" {
+				if sub, ok := val.(map[string]any); ok {
+					subWhere, subHaving := buildGroupAnd(sub)
+					if subWhere != nil {
+						whereParts = append(whereParts, subWhere)
+					}
+					if subHaving != nil {
+						havingParts = append(havingParts, subHaving)
+					}
+				}
+				continue
+			}
+
+			field := key
+			op := "eq"
+			if parts := strings.SplitN(key, "__", 2); len(parts) == 2 {
+				field = parts[0]
+				op = parts[1]
+			}
+			if conds, condAgg := buildCond(field, op, val); len(conds) > 0 {
+				if condAgg {
+					havingParts = append(havingParts, conds...)
+				} else {
+					whereParts = append(whereParts, conds...)
+				}
+			}
+		}
+
+		var whereExpr squirrel.Sqlizer
+		if len(whereParts) > 0 {
+			whereExpr = squirrel.And(whereParts)
+		}
+		var havingExpr squirrel.Sqlizer
+		if len(havingParts) > 0 {
+			havingExpr = squirrel.And(havingParts)
+		}
+		return whereExpr, havingExpr
 	}
-	return where, nil
+
+	where, having := buildGroupAnd(filters)
+	if where == nil && having == nil {
+		return nil, nil, nil
+	}
+	return where, having, nil
 }

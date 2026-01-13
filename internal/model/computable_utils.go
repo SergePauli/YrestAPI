@@ -8,6 +8,7 @@ import (
 // допускаем пустой плейсхолдер {} для ссылки на базовый алиас
 var placeholderRe = regexp.MustCompile(`\{([^}]*)\}`)
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var qualifiedColRe = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*|t\d+)\.("([^"]+)"|[A-Za-z_][A-Za-z0-9_]*)`)
 
 func isSQLKeyword(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -77,6 +78,36 @@ func extractPathsFromExpr(expr string) []string {
 		}
 		set[p] = struct{}{}
 		out = append(out, p)
+	}
+	return out
+}
+
+// extractQualifiedColumns достаёт alias.column из выражения, фильтруя по набору алиасов.
+func extractQualifiedColumns(expr string, aliases map[string]struct{}) []string {
+	if expr == "" || len(aliases) == 0 {
+		return nil
+	}
+	matches := qualifiedColRe.FindAllStringSubmatch(expr, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		if len(m) < 3 {
+			continue
+		}
+		alias := m[1]
+		if _, ok := aliases[alias]; !ok {
+			continue
+		}
+		col := m[2]
+		key := alias + "." + col
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
 	}
 	return out
 }
