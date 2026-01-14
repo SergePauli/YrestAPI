@@ -119,6 +119,79 @@ func TestComputablePlaceholderUsesAlias(t *testing.T) {
 	}
 }
 
+func TestComputableHasManyCTE(t *testing.T) {
+	stageModel := &Model{
+		Name:  "Stage",
+		Table: "stages",
+	}
+	m := &Model{
+		Name:  "Project",
+		Table: "projects",
+		Relations: map[string]*ModelRelation{
+			"stages": {Type: "has_many", Model: "Stage"},
+		},
+		Computable: map[string]*Computable{
+			"is_funded": {
+				Source: "CASE WHEN SUM(CAST({stages}.is_funded AS INT)) = 0 THEN false " +
+					"WHEN SUM(CAST({stages}.is_funded AS INT)) = COUNT({stages}.id) THEN true ELSE null END",
+				Type: "bool",
+			},
+			"cost": {
+				Source: "coalesce(sum({stages}.cost), 0)",
+				Type:   "float",
+			},
+		},
+		Presets: map[string]*DataPreset{
+			"list": {
+				Fields: []Field{
+					{Source: "id", Type: "int"},
+					{Source: "is_funded", Alias: "is_funded", Type: "computable"},
+					{Source: "cost", Alias: "cost", Type: "computable"},
+				},
+			},
+		},
+	}
+	Registry = map[string]*Model{"Project": m, "Stage": stageModel}
+	if err := LinkModelRelations(); err != nil {
+		t.Fatalf("LinkModelRelations: %v", err)
+	}
+
+	preset := m.Presets["list"]
+	filters := map[string]any{"is_funded__eq": false, "status_id__in": []int{0, 1}}
+	sorts := []string{"id DESC"}
+
+	aliasMap, err := m.CreateAliasMap(m, preset, filters, sorts)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	sb, err := m.BuildIndexQuery(aliasMap, filters, sorts, preset, 0, 0)
+	if err != nil {
+		t.Fatalf("BuildIndexQuery: %v", err)
+	}
+
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if !strings.Contains(sql, "WITH t0_agg AS") {
+		t.Fatalf("expected CTE for has_many aggregate, got SQL: %s", sql)
+	}
+	if !strings.Contains(sql, "LEFT JOIN t0_agg ON t0_agg.id = main.id") {
+		t.Fatalf("expected join to CTE, got SQL: %s", sql)
+	}
+	if !strings.Contains(sql, "t0_agg.\"is_funded\"") {
+		t.Fatalf("expected filter to use CTE column, got SQL: %s", sql)
+	}
+	if strings.Contains(sql, "HAVING") {
+		t.Fatalf("unexpected HAVING with CTE-based filtering, got SQL: %s", sql)
+	}
+	if strings.Count(sql, "LEFT JOIN stages AS t0") != 1 {
+		t.Fatalf("expected stages join only inside CTE, got SQL: %s", sql)
+	}
+}
+
 func TestComputableBareColumnsQualifiedInFilters(t *testing.T) {
 	naming := &Model{
 		Name:  "Naming",
