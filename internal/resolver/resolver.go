@@ -3,11 +3,11 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
 	"YrestAPI/internal/db"
+	"YrestAPI/internal/logger"
 	"YrestAPI/internal/model"
 )
 
@@ -33,7 +33,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	aliasMap, err := m.CreateAliasMap(m, preset, filters, sorts)
 	if err != nil {
-		log.Printf("resolver: alias map error: %v", err)
+		logger.Error("alias_map_error", map[string]any{
+			"model":  req.Model,
+			"preset": req.Preset,
+			"error":  err.Error(),
+		})
 		return nil, fmt.Errorf("alias map error: %s", err)
 	}
 
@@ -48,8 +52,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 		return nil, err
 	}
 	//
-	log.Println("SQL for index:", sqlStr)
-	log.Println("ARGS:", args)
+	logger.Debug("sql", map[string]any{
+		"endpoint": "/api/index",
+		"sql":      sqlStr,
+		"args":     args,
+	})
 
 	rows, err := db.Pool.Query(ctx, sqlStr, args...)
 	if err != nil {
@@ -59,7 +66,6 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	// функция, восстанавливающая поля из aliasMap
 	items, err := m.ScanFlatRows(rows, preset, aliasMap)
-	//log.Printf("Resolver: main items: %+v", items)
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +79,14 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	if len(tails) == 0 && len(polyTails) == 0 {
 		// ⬅️ Хвостов нет — сразу финализируем и выходим
 		if err := finalizeItems(m, preset, items); err != nil {
+			logger.Error("resolver_finalize_error", map[string]any{
+				"model":  req.Model,
+				"preset": req.Preset,
+				"error":  err.Error(),
+				"items":  items,
+			})
 			return nil, fmt.Errorf("resolver: finalize: %w", err)
 		}
-		//log.Printf("Resolver: final items: %+v", items)
 		return items, nil
 	}
 
@@ -101,7 +112,6 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 			}
 		}
 		parentIDsByTail[t.FieldAlias] = ids
-		//log.Printf("parentIDsByTail[%s] = %+v", t.FieldAlias, parentIDsByTail[t.FieldAlias])
 	}
 
 	type grouped = map[any][]map[string]any
@@ -178,7 +188,6 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 					return
 				}
 			}
-			//log.Printf("Resolver: child request for tail '%s': %+v", t.FieldAlias, childReq)
 			childItems, err := Resolver(ctx, childReq)
 			if err != nil {
 				mu.Lock()
@@ -186,7 +195,6 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 				mu.Unlock()
 				return
 			}
-			//log.Printf("Resolver: child items for tail '%s': %+v rows", t.FieldAlias, childItems)
 			// сгруппируем дочерние по FK (он указывает на родителя)
 			g := make(grouped)
 			for _, row := range childItems {
@@ -202,6 +210,12 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	wg.Wait()
 	if rerr != nil {
+		logger.Error("resolver_tail_error", map[string]any{
+			"model":  req.Model,
+			"preset": req.Preset,
+			"error":  rerr.Error(),
+			"items":  items,
+		})
 		return nil, rerr
 	}
 
@@ -362,7 +376,6 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	}
 
 	// 8) финализация formatter/computed уже ПОСЛЕ склейки
-	//log.Printf("Resolver: items with tails: %+v", items)
 	if err := finalizeItems(m, preset, items); err != nil {
 		return nil, fmt.Errorf("resolver: finalize: %w", err)
 	}

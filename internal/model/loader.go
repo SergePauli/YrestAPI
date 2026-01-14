@@ -55,7 +55,6 @@ func LoadModelsFromDir(dir string) error {
 		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		model.Name = name
 		Registry[name] = &model
-		fmt.Printf("✅ Модель %s загружена с %d связями\n", name, len(model.Relations))
 	}
 	return nil
 }

@@ -3,49 +3,67 @@ package main
 import (
 	"YrestAPI/internal/config"
 	"YrestAPI/internal/db"
+	"YrestAPI/internal/logger"
 	"YrestAPI/internal/model"
 	"YrestAPI/internal/router"
+	"flag"
 	"log"
 	"net/http"
 
 	"fmt"
+	"os"
 )
 
 func main() {
+	debugFlag := flag.Bool("d", false, "enable debug logging")
+	flag.Parse()
+
 	cfg := config.LoadConfig()
+	if err := logger.Init("."); err != nil {
+		fmt.Fprintf(os.Stderr, "log init failed: %v\n", err)
+		os.Exit(1)
+	}
+	logger.SetDebug(*debugFlag)
 
 	// PostgreSQL
-	
+
 	if err := db.InitPostgres(cfg.PostgresDSN); err != nil {
-		log.Fatalf("❌ PostgreSQL init failed: %v", err)
+		logger.Error("postgres_init_failed", map[string]any{"error": err.Error()})
+		os.Exit(1)
 	}
-	log.Println("✅ Connected to PostgreSQL")
+	logger.Info("postgres_connected", nil)
 
 	// Redis
-    db.InitRedis(cfg.RedisAddr)
+	db.InitRedis(cfg.RedisAddr)
 
 	if err := db.PingRedis(); err != nil {
-		log.Fatalf("❌ Redis init failed: %v", err)
+		logger.Error("redis_init_failed", map[string]any{"error": err.Error()})
+		os.Exit(1)
 	}
 
-	log.Println("✅ Connected to Redis")
-  // Initialize registry 
+	logger.Info("redis_connected", nil)
+	// Initialize registry
 	if err := model.InitRegistry(cfg.ModelsDir); err != nil {
-		log.Fatalf("❌ InitRegistry failed: %v", err)
+		logger.Error("registry_init_failed", map[string]any{"error": err.Error()})
+		os.Exit(1)
 	}
-	fmt.Println("✅ All Models and Presets initialized")  
+	logger.Info("models_initialized", nil)
 	// Load locales if available
 	// This is optional, so we handle errors gracefully
-	// If locales are not found, we just disable localization	
-	if err := model.LoadLocales(cfg.Locale); err != nil {		
-		log.Printf("⚠️ LoadLocales: %v (localization disabled)", err)
+	// If locales are not found, we just disable localization
+	if err := model.LoadLocales(cfg.Locale); err != nil {
+		logger.Warn("locales_disabled", map[string]any{"error": err.Error()})
 		model.HasLocales = false
 	} else {
 		model.HasLocales = true
 	}
-  // Initialize routes
-  router.InitRoutes()
-  // Start HTTP server
-  log.Printf("🚀 Starting server on port %s", cfg.Port)
-  log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
+	// Initialize routes
+	router.InitRoutes()
+	// Start HTTP server
+	logger.Info("server_start", map[string]any{"port": cfg.Port})
+	log.Printf("🚀 Starting server on port %s", cfg.Port)
+	if err := http.ListenAndServe(":"+cfg.Port, nil); err != nil {
+		logger.Error("server_error", map[string]any{"error": err.Error()})
+		os.Exit(1)
+	}
 }

@@ -3,12 +3,13 @@ package config
 // Package config provides configuration loading for the application.
 import (
 	"YrestAPI/internal"
-	"log"
+	"YrestAPI/internal/logger"
 	"os"
 	"path/filepath"
 
 	"github.com/joho/godotenv"
 )
+
 type Config struct {
 	Port        string
 	PostgresDSN string
@@ -16,10 +17,10 @@ type Config struct {
 	ModelsDir   string
 	Locale      string
 }
+
 func LoadConfig() *Config {
 	// ищем корень проекта (там где go.mod)
 	root, _ := internal.FindRepoRoot()
-	
 
 	// пробуем загрузить .env из корня
 	_ = godotenv.Load(filepath.Join(root, ".env"))
@@ -39,6 +40,9 @@ func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
-	log.Printf("⚠️ env %s not set, using default: %s", key, fallback)
+	logger.Warn("env_default", map[string]any{
+		"key":      key,
+		"fallback": fallback,
+	})
 	return fallback
 }

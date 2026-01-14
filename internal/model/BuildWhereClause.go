@@ -2,9 +2,10 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
+
+	"YrestAPI/internal/logger"
 
 	"github.com/Masterminds/squirrel"
 )
@@ -39,7 +40,7 @@ func (m *Model) buildWhereClause(
 			column := fld[idx+1:] // например "name"
 			alias, ok := aliasMap.PathToAlias[path]
 			if !ok {
-				log.Printf("⚠️ Unknown relation path in filter: %s", path)
+				logger.Warn("unknown_relation_path", map[string]any{"path": path})
 				return ""
 			}
 			return fmt.Sprintf("%s.%s", alias, column)
@@ -134,7 +135,7 @@ func (m *Model) buildWhereClause(
 			if cond != nil {
 				parts = append(parts, cond)
 			} else {
-				log.Printf("⚠️ Unknown filter operator: %s in key: %s", op, field)
+				logger.Warn("unknown_filter_operator", map[string]any{"op": op, "field": field})
 			}
 		}
 

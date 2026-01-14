@@ -2,7 +2,8 @@ package db
 
 import (
 	"context"
-	"log"
+
+	"YrestAPI/internal/logger"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -13,7 +14,7 @@ var RDB *redis.Client
 func InitRedis(addr string) {
 	if addr == "" {
 		addr = "localhost:6379"
-		log.Println("⚠️ Using default Redis addr")
+		logger.Warn("redis_default_addr", nil)
 	}
 
 	RDB = redis.NewClient(&redis.Options{

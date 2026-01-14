@@ -2,9 +2,10 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+
+	"YrestAPI/internal/logger"
 
 	"gopkg.in/yaml.v3"
 )
@@ -83,7 +84,10 @@ func LoadLocales(locale string) error {
 	}
 
 	ActiveDict = parseNodeMap(raw)
-	log.Printf("✅ Loaded locale %s with %+v entries", locale, len(ActiveDict))
+	logger.Info("locale_loaded", map[string]any{
+		"locale":  locale,
+		"entries": len(ActiveDict),
+	})
 	return nil
 }
 
@@ -157,7 +161,6 @@ func (n *LocaleNode) Lookup(keys ...any) (string, bool) {
 		return "", false
 	}
 	cur := n
-	//log.Printf("Lookup in node: %+v with keys: %v\n", cur, keys)
 	for _, k := range keys {
 		if cur == nil {
 			return "", false

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+
+	"YrestAPI/internal/logger"
 )
 
 var Registry = map[string]*Model{}
@@ -22,15 +24,25 @@ func InitRegistry(dir string) error {
 		return fmt.Errorf("validation error: %w", err)
 	}
 	if err := BuildPresetAliasMaps(); err != nil {
-		log.Fatalf("InitRegistry failed: %v", err)
+		return fmt.Errorf("build preset alias maps: %w", err)
 	}
 
 	after := readAllocBytes() // heap right after load (without GC)
 	regUsage := int64(after) - int64(before)
 	totalPresets, totalComputable := countPresetsAndComputable()
 	limitBytes, limitSrc := detectMemoryLimit()
+	logger.Info("registry_initialized", map[string]any{
+		"models":     len(Registry),
+		"presets":    totalPresets,
+		"computable": totalComputable,
+		"heap_now":   formatBytes(after),
+		"delta":      formatBytes(uint64(max64(regUsage, 0))),
+		"limit":      formatBytes(limitBytes),
+		"limit_src":  limitSrc,
+	})
 	log.Printf("📦 Registry initialized: models=%d, presets=%d, computable=%d, heap now≈%s, delta≈%s, limit≈%s (source: %s)",
 		len(Registry), totalPresets, totalComputable, formatBytes(after), formatBytes(uint64(max64(regUsage, 0))), formatBytes(limitBytes), limitSrc)
+
 
 	return nil
 }
@@ -60,7 +72,7 @@ func GetModelName(m *Model) string {
 
 func GetPresetName(m *Model, p *DataPreset) string {
 	if p == nil {
-		log.Println("p==nil in GetPresetName")
+		logger.Warn("preset_name_nil", nil)
 	}
 	for name, preset := range m.Presets {
 		if preset == p {

@@ -2,10 +2,10 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 
+	"YrestAPI/internal/logger"
 	"unicode"
 )
 
@@ -93,7 +93,10 @@ func LinkModelRelations() error {
 			// Если нет fields — создаём пустой слайс
 			if preset.Fields == nil {
 				preset.Fields = []Field{}
-				log.Printf("Warning: preset '%s' in model '%s' has no fields defined", presetName, modelName)
+				logger.Warn("preset_no_fields", map[string]any{
+					"preset": presetName,
+					"model":  modelName,
+				})
 			}
 			preset.Name = presetName
 			// Проверяем каждое поле
@@ -174,7 +177,10 @@ func FindPresetByName(model *Model, name string) *DataPreset {
 
 	preset, ok := model.Presets[name]
 	if !ok {
-		log.Printf("Preset %s not found in model %s", name, model.Table)
+		logger.Warn("preset_not_found", map[string]any{
+			"preset": name,
+			"model":  model.Table,
+		})
 		return nil
 	}
 

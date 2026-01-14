@@ -3,19 +3,19 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
+
+	"YrestAPI/internal/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var Pool *pgxpool.Pool
 
-
 func InitPostgres(dsn string) error {
 	if dsn == "" {
 		dsn = "postgres://postgres:postgres@localhost:5432/app?sslmode=disable"
-		log.Println("⚠️ Using default Postgres DSN")
+		logger.Warn("postgres_default_dsn", nil)
 	}
 
 	// Настраиваем конфиг пула
@@ -25,10 +25,10 @@ func InitPostgres(dsn string) error {
 	}
 
 	// Пример настройки параметров пула
-	cfg.MaxConns = 20                   // максимальное число соединений
-	cfg.MinConns = 2                    // минимальное число соединений
-	cfg.MaxConnLifetime = time.Hour     // время жизни соединения
-	cfg.MaxConnIdleTime = time.Minute*5 // время простоя до закрытия соединения
+	cfg.MaxConns = 20                     // максимальное число соединений
+	cfg.MinConns = 2                      // минимальное число соединений
+	cfg.MaxConnLifetime = time.Hour       // время жизни соединения
+	cfg.MaxConnIdleTime = time.Minute * 5 // время простоя до закрытия соединения
 
 	// Создаём пул
 	Pool, err = pgxpool.NewWithConfig(context.Background(), cfg)
@@ -41,6 +41,6 @@ func InitPostgres(dsn string) error {
 		return fmt.Errorf("ping pgx pool: %w", err)
 	}
 
-	log.Println("✅ Postgres pool connected")
+	logger.Info("postgres_pool_connected", nil)
 	return nil
 }
