@@ -44,33 +44,33 @@ func finalizeItems(m *model.Model, p *model.DataPreset, items []map[string]any) 
 	collectInternalMarkers(m, p, "", &prefixes, &exacts)
 
 	// 3) удалить
-	if len(prefixes) == 0 && len(exacts) == 0 {
-		return nil
-	}
-	for i := range items {
+	if len(prefixes) != 0 || len(exacts) != 0 {
+		for i := range items {
 
-		// точные ключи
-		for _, k := range exacts {
-			deleteExactPath(items[i], k)
-		}
-		// удаления поддеревьев (person, members, members.contact)
-		for _, pref := range prefixes {
-			deletePrefix(items[i], pref)
-		}
-		// префиксные удаления
-		if len(prefixes) > 0 {
-			for k := range items[i] {
-				for _, pref := range prefixes {
-					if k == pref || strings.HasPrefix(k, pref+".") {
-						delete(items[i], k)
-						break
+			// точные ключи
+			for _, k := range exacts {
+				deleteExactPath(items[i], k)
+			}
+			// удаления поддеревьев (person, members, members.contact)
+			for _, pref := range prefixes {
+				deletePrefix(items[i], pref)
+			}
+			// префиксные удаления
+			if len(prefixes) > 0 {
+				for k := range items[i] {
+					for _, pref := range prefixes {
+						if k == pref || strings.HasPrefix(k, pref+".") {
+							delete(items[i], k)
+							break
+						}
 					}
 				}
 			}
 		}
-
 	}
 
+	// 4) применяем алиасы для preset-контейнеров (belongs_to)
+	applyPresetAliases(m, p, items, "")
 	return nil
 }
 
@@ -97,6 +97,73 @@ func applyFieldAliases(p *model.DataPreset, items []map[string]any) {
 			if v, ok := items[i][src]; ok {
 				items[i][dst] = v
 				delete(items[i], src)
+			}
+		}
+	}
+}
+
+// applyPresetAliases переносит контейнеры preset (belongs_to) из source-ключей в alias.
+func applyPresetAliases(m *model.Model, p *model.DataPreset, items []map[string]any, prefix string) {
+	if m == nil || p == nil || len(items) == 0 {
+		return
+	}
+	getCtx := func(root map[string]any, path string) (map[string]any, bool) {
+		if strings.TrimSpace(path) == "" {
+			return root, true
+		}
+		cur := any(root)
+		for _, seg := range strings.Split(path, ".") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			mm, ok := cur.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			cur, ok = mm[seg]
+			if !ok {
+				return nil, false
+			}
+		}
+		mm, ok := cur.(map[string]any)
+		return mm, ok
+	}
+
+	for _, f := range p.Fields {
+		if f.Type != "preset" {
+			continue
+		}
+		rel := m.Relations[f.Source]
+		if rel != nil && rel.Type == "belongs_to" {
+			nestedModel := rel.GetModelRef()
+			var nested *model.DataPreset
+			if nestedModel != nil {
+				if f.GetPresetRef() != nil {
+					nested = f.GetPresetRef()
+				} else if f.NestedPreset != "" {
+					nested = nestedModel.Presets[f.NestedPreset]
+				}
+			}
+			if nested != nil {
+				applyPresetAliases(nestedModel, nested, items, prefixFor(prefix, f.Source))
+			}
+		}
+
+		alias := strings.TrimSpace(f.Alias)
+		if alias == "" || alias == f.Source {
+			continue
+		}
+		for i := range items {
+			ctx, ok := getCtx(items[i], prefix)
+			if !ok {
+				continue
+			}
+			if v, ok := ctx[f.Source]; ok {
+				if _, exists := ctx[alias]; !exists {
+					ctx[alias] = v
+				}
+				delete(ctx, f.Source)
 			}
 		}
 	}

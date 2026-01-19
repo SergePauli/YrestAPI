@@ -8,7 +8,7 @@ MAIN_PACKAGE=./cmd
 # make run — запуск приложения
 run:
 	@echo "▶️  Запуск приложения..."
-	go run $(MAIN_PACKAGE)
+	go run $(MAIN_PACKAGE) -d
 
 # ================================================
 # make build — сборка приложения
