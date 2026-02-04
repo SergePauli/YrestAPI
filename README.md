@@ -133,8 +133,18 @@ Configuration is read from environment variables (see `internal/config/config.go
 | `REDIS_ADDR`   | `localhost:6379`                                                  | Redis address for alias map caching     |
 | `MODELS_DIR`   | `./db`                                                            | Path to directory with YAML model files |
 | `LOCALE`       | `en`                                                              | Default locale for localization         |
+| `AUTH_ENABLED` | `false`                                                           | Enable JWT auth middleware              |
+| `AUTH_JWT_VALIDATION_TYPE` | `HS256`                                                | JWT signature algorithm: `HS256`/`RS256`/`ES256` |
+| `AUTH_JWT_ISSUER` | *(empty)*                                                      | Required `iss` claim value              |
+| `AUTH_JWT_AUDIENCE` | *(empty)*                                                    | Required `aud` claim value              |
+| `AUTH_JWT_HMAC_SECRET` | *(empty)*                                                  | Shared secret for `HS256`               |
+| `AUTH_JWT_PUBLIC_KEY` | *(empty)*                                                   | PEM public key for `RS256`/`ES256`      |
+| `AUTH_JWT_PUBLIC_KEY_PATH` | *(empty)*                                              | Path to PEM public key for `RS256`/`ES256` |
+| `AUTH_JWT_CLOCK_SKEW_SEC` | `60`                                                    | Allowed clock skew when validating `exp`/`nbf`/`iat` |
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
+
+When `AUTH_ENABLED=true`, each API request must include `Authorization: Bearer <token>`. Token validation is fully local: the service checks signature and claims (`iss`, `aud`, `exp`, `nbf`, `iat`) without network calls.
 
 ---
 

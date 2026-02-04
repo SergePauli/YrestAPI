@@ -58,7 +58,10 @@ func main() {
 		model.HasLocales = true
 	}
 	// Initialize routes
-	router.InitRoutes()
+	if err := router.InitRoutes(cfg); err != nil {
+		logger.Error("router_init_failed", map[string]any{"error": err.Error()})
+		os.Exit(1)
+	}
 	// Start HTTP server
 	logger.Info("server_start", map[string]any{"port": cfg.Port})
 	log.Printf("🚀 Starting server on port %s", cfg.Port)

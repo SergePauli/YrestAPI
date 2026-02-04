@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 		println("setup test DB failed:", err.Error())
 		os.Exit(1)
 	}
-	
+
 	// 2) Указываем каталог тестовых моделей
 	root, err := internal.FindRepoRoot()
 	if err != nil {
@@ -49,7 +49,10 @@ func TestMain(m *testing.M) {
 	println("✅ Registry initialized from:", cfg.ModelsDir)
 
 	// 3) Поднимаем HTTP-сервис на порту из конфига
-	router.InitRoutes() // регистрирует маршруты на http.DefaultServeMux (ожидается)
+	if err := router.InitRoutes(cfg); err != nil {
+		println("❌ InitRoutes failed:", err.Error())
+		os.Exit(1)
+	}
 	httpSrv = &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: http.DefaultServeMux,
@@ -72,27 +75,27 @@ func TestMain(m *testing.M) {
 	println("🚀 HTTP started at", testBaseURL)
 
 	var ok bool
-if err := db.Pool.QueryRow(context.Background(),
-    `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='people')`,
-).Scan(&ok); err != nil {
-    log.Printf("sanity check failed: %v", err)
-} else {
-    log.Printf("people table exists: %v", ok)
-}
+	if err := db.Pool.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='people')`,
+	).Scan(&ok); err != nil {
+		log.Printf("sanity check failed: %v", err)
+	} else {
+		log.Printf("people table exists: %v", ok)
+	}
 	// На этом шаге можно сразу выйти, если "до тестов далеко".
 	// Но чтобы `go test` был доволен, прогоняем m.Run().
 	code := m.Run()
 
 	// явный порядок завершения: сначала HTTP, потом БД, потом Exit
-    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-    _ = httpSrv.Shutdown(ctx)
-    cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	_ = httpSrv.Shutdown(ctx)
+	cancel()
 
-    if err := teardownDB(); err != nil {
-        println("⚠️ drop test DB failed:", err.Error())
-    } else {
-        log.Printf("TestMain: test DB dropped")
-    }
+	if err := teardownDB(); err != nil {
+		println("⚠️ drop test DB failed:", err.Error())
+	} else {
+		log.Printf("TestMain: test DB dropped")
+	}
 	os.Exit(code)
 }
 
