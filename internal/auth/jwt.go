@@ -55,7 +55,7 @@ func NewJWTValidator(cfg config.JWTConfig) (*JWTValidator, error) {
 	case "HS256":
 		if cfg.HMACSecret == "" {
 			return nil, errors.New("jwt hmac secret is required for HS256")
-		}
+		}		
 		v.hmacKey = []byte(cfg.HMACSecret)
 	case "RS256":
 		pubKey, err := loadPublicKey(cfg)
@@ -230,20 +230,42 @@ func numericClaim(claims map[string]any, key string) (int64, error) {
 }
 
 func isAudienceValid(raw any, expected string) bool {
+	expectedList := splitCSV(expected)
 	switch aud := raw.(type) {
 	case string:
-		return aud == expected
+		return containsString(expectedList, aud)
 	case []any:
 		for _, item := range aud {
-			if s, ok := item.(string); ok && s == expected {
+			if s, ok := item.(string); ok && containsString(expectedList, s) {
 				return true
 			}
 		}
 	case []string:
 		for _, s := range aud {
-			if s == expected {
+			if containsString(expectedList, s) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func containsString(list []string, value string) bool {
+	for _, s := range list {
+		if s == value {
+			return true
 		}
 	}
 	return false

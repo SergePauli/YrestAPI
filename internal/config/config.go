@@ -18,7 +18,13 @@ type Config struct {
 	RedisAddr   string
 	ModelsDir   string
 	Locale      string
+	CORS        CORSConfig
 	Auth        AuthConfig
+}
+
+type CORSConfig struct {
+	AllowOrigin string
+	AllowCredentials bool
 }
 
 type AuthConfig struct {
@@ -49,6 +55,10 @@ func LoadConfig() *Config {
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 		ModelsDir:   getEnv("MODELS_DIR", "./db"),
 		Locale:      getEnv("LOCALE", "en"),
+		CORS: CORSConfig{
+			AllowOrigin: getEnv("CORS_ALLOW_ORIGIN", "*"),
+			AllowCredentials: getEnvBool("CORS_ALLOW_CREDENTIALS", false),
+		},
 		Auth: AuthConfig{
 			Enabled: getEnvBool("AUTH_ENABLED", false),
 			JWT: JWTConfig{
