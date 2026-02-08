@@ -135,7 +135,7 @@ func SetupAndTeardownTestDB(baseDSN string, initFunc func(string) error) (teardo
 	}
 
 	if err := CreateTestDatabase(adminDSN, testDB); err != nil {
-		return nil, fmt.Errorf("create DB %q: %w", testDB, err)
+		return nil, fmt.Errorf("create DB %q: %w (PostgresDSN from config.go -> %s). Ensure Postgres is running or set POSTGRES_DSN", testDB, err, redactDSN(baseDSN))
 	}
 	log.Printf("test DB %q created", testDB)
 	// миграции прямо сейчас, до любых тестов
@@ -147,7 +147,7 @@ func SetupAndTeardownTestDB(baseDSN string, initFunc func(string) error) (teardo
 	if initFunc != nil {
 		if err := initFunc(testDSN); err != nil {
 			_ = DropTestDatabase(adminDSN, testDB)
-			return nil, fmt.Errorf("InitPostgres failed: %w", err)
+			return nil, fmt.Errorf("InitPostgres failed: %w (PostgresDSN from config.go -> %s). Ensure Postgres is running or set POSTGRES_DSN", err, redactDSN(baseDSN))
 		}
 	}
 
@@ -156,4 +156,17 @@ func SetupAndTeardownTestDB(baseDSN string, initFunc func(string) error) (teardo
 	}
 	log.Printf("teardown function ready to drop test DB %q", testDB)	
 	return teardown, nil
+}
+
+func redactDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return dsn
+	}
+	username := u.User.Username()
+	if username == "" {
+		return dsn
+	}
+	u.User = url.UserPassword(username, "******")
+	return u.String()
 }
