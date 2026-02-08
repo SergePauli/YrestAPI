@@ -1,6 +1,6 @@
 # YrestAPI
 
-**YrestAPI** is a declarative REST API engine in Go, built on PostgreSQL with Redis caching and parallel loading of `has_` relations.  
+**YrestAPI** is a declarative REST API engine in Go, built on PostgreSQL with parallel loading of `has_` relations.  
 Everything is configured via YAML — no business logic in code.
 
 ---
@@ -9,12 +9,12 @@ Everything is configured via YAML — no business logic in code.
 
 - 📁 **Declarative YAML config** — models, relations, presets
 - ⚡ **High performance** — Go + concurrent processing
-- 🚀 **Redis caching** — speeds up nested and repeated queries
+- ⚡ **In-memory alias cache** — speeds up repeated query planning
 - 🔁 **`has_many`, `has_one`, `belongs_to`, `through` support**
 - 🧩 **Nested presets** — JSON of arbitrary depth
 - 🔎 **Filtering, sorting, pagination**
 - 🛠️ **Field formatters** — template-based formatting in YAML
-- 🔐 **Production-ready** — plain `Go`, `pgx`, `Redis`
+- 🔐 **Production-ready** — plain `Go`, `pgx`
 
 ## 🧩 When YrestAPI fits
 
@@ -118,7 +118,7 @@ Notes:
 
 - Filters and sorts can traverse relations using dotted paths (`relation.field`), including polymorphic and through relations defined in YAML.
 - All path resolution goes through the alias map; invalid paths are logged and ignored.
-- Redis is used only for caching alias maps (if enabled); query execution hits PostgreSQL directly.
+- Alias maps are cached in-memory; query execution hits PostgreSQL directly.
 
 ---
 
@@ -130,7 +130,6 @@ Configuration is read from environment variables (see `internal/config/config.go
 | -------------- | ----------------------------------------------------------------- | --------------------------------------- |
 | `PORT`         | `8080`                                                            | HTTP port for the API server            |
 | `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string            |
-| `REDIS_ADDR`   | `localhost:6379`                                                  | Redis address for alias map caching     |
 | `MODELS_DIR`   | `./db`                                                            | Path to directory with YAML model files |
 | `LOCALE`       | `en`                                                              | Default locale for localization         |
 | `AUTH_ENABLED` | `false`                                                           | Enable JWT auth middleware              |
@@ -143,6 +142,7 @@ Configuration is read from environment variables (see `internal/config/config.go
 | `AUTH_JWT_CLOCK_SKEW_SEC` | `60`                                                    | Allowed clock skew when validating `exp`/`nbf`/`iat` |
 | `CORS_ALLOW_ORIGIN` | `*`                                                          | Value for `Access-Control-Allow-Origin` |
 | `CORS_ALLOW_CREDENTIALS` | `false`                                               | Set `Access-Control-Allow-Credentials: true` |
+| `ALIAS_CACHE_MAX_BYTES` | `0`                                                   | Max bytes for in-memory alias cache (0 = unlimited) |
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
 

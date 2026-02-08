@@ -33,20 +33,12 @@ func main() {
 	}
 	logger.Info("postgres_connected", nil)
 
-	// Redis
-	db.InitRedis(cfg.RedisAddr)
-
-	if err := db.PingRedis(); err != nil {
-		logger.Error("redis_init_failed", map[string]any{"error": err.Error()})
-		os.Exit(1)
-	}
-
-	logger.Info("redis_connected", nil)
 	// Initialize registry
 	if err := model.InitRegistry(cfg.ModelsDir); err != nil {
 		logger.Error("registry_init_failed", map[string]any{"error": err.Error()})
 		os.Exit(1)
 	}
+	model.SetAliasCacheMaxBytes(cfg.AliasCache.MaxBytes)
 	logger.Info("models_initialized", nil)
 	// Load locales if available
 	// This is optional, so we handle errors gracefully

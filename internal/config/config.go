@@ -15,11 +15,15 @@ import (
 type Config struct {
 	Port        string
 	PostgresDSN string
-	RedisAddr   string
 	ModelsDir   string
 	Locale      string
+	AliasCache  AliasCacheConfig
 	CORS        CORSConfig
 	Auth        AuthConfig
+}
+
+type AliasCacheConfig struct {
+	MaxBytes int64
 }
 
 type CORSConfig struct {
@@ -52,9 +56,11 @@ func LoadConfig() *Config {
 	cfg := &Config{
 		Port:        getEnv("PORT", "8080"),
 		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/app?sslmode=disable"),
-		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 		ModelsDir:   getEnv("MODELS_DIR", "./db"),
 		Locale:      getEnv("LOCALE", "en"),
+		AliasCache: AliasCacheConfig{
+			MaxBytes: getEnvInt64("ALIAS_CACHE_MAX_BYTES", 0),
+		},
 		CORS: CORSConfig{
 			AllowOrigin: getEnv("CORS_ALLOW_ORIGIN", "*"),
 			AllowCredentials: getEnvBool("CORS_ALLOW_CREDENTIALS", false),

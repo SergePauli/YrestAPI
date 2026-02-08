@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 func (m *Model) CreateAliasMap(model *Model, preset *DataPreset, filters map[string]interface{}, sorts []string) (*AliasMap, error) {
@@ -12,10 +13,20 @@ func (m *Model) CreateAliasMap(model *Model, preset *DataPreset, filters map[str
 	filters = NormalizeFiltersWithAliases(model, filters)
 	sorts = NormalizeSortsWithAliases(model, sorts)
 
+	key, err := aliasCacheKey(m.Name, preset, filters, sorts)
+	if err == nil {
+		if cached, ok := globalAliasCache.get(key, time.Now().UTC()); ok {
+			return cached, nil
+		}
+	}
+
 	// 1. Генерация карты на лету
 	aliasMap, err := BuildAliasMap(m, preset, filters, sorts)
 	if err != nil {
 		return nil, fmt.Errorf("build alias map failed: %w", err)
+	}
+	if err == nil && key != "" {
+		globalAliasCache.set(key, aliasMap, time.Now().UTC())
 	}
 	return aliasMap, nil
 }

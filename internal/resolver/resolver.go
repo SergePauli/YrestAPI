@@ -18,7 +18,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("resolver: model not found: %s", req.Model)
 	}
-	// Получаем карту алиасов из Redis или строим на лету
+	// Получаем карту алиасов из кэша или строим на лету
 	var preset *model.DataPreset
 	if req.Preset != "" {
 		preset = m.GetPreset(req.Preset)

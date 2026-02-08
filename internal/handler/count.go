@@ -77,7 +77,7 @@ func CountHandler(w http.ResponseWriter, r *http.Request) {
 	// Разворачиваем короткие алиасы в фильтрах, чтобы карта алиасов и WHERE работали с одними ключами
 	filters := model.NormalizeFiltersWithAliases(m, req.Filters)
 
-	// Получаем карту алиасов из Redis или строим на лету
+	// Получаем карту алиасов из кэша или строим на лету
 	aliasMap, err := m.CreateAliasMap(m, preset, filters, nil)
 	if err != nil {
 		logger.Error("alias_map_error", map[string]any{
