@@ -117,6 +117,42 @@ func TestAliasShortcutInCount(t *testing.T) {
 	}
 }
 
+// Проверяем, что фильтры or в виде массива поддерживаются и разворачивают алиасы.
+func TestAliasShortcutInOrArrayFilters(t *testing.T) {
+	person, preset, _ := aliasShortcutFixture(t)
+
+	filters := map[string]any{
+		"or": []any{
+			map[string]any{"org.name__cnt": "IBM"},
+			map[string]any{"id__eq": 1},
+		},
+	}
+
+	aliasMap, err := person.CreateAliasMap(person, preset, filters, nil)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	sb, err := person.BuildIndexQuery(aliasMap, NormalizeFiltersWithAliases(person, filters), nil, preset, 0, 0)
+	if err != nil {
+		t.Fatalf("BuildIndexQuery: %v", err)
+	}
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if !strings.Contains(sql, "organizations AS") {
+		t.Fatalf("expected join to organizations, got: %s", sql)
+	}
+	if !strings.Contains(sql, "t1.name") {
+		t.Fatalf("alias in or-filter not applied, sql: %s", sql)
+	}
+	if !strings.Contains(sql, " OR ") {
+		t.Fatalf("expected OR in where clause, sql: %s", sql)
+	}
+}
+
 func TestAliasShortcutRecursiveInFilters(t *testing.T) {
 	org := &Model{Name: "Organization", Table: "organizations"}
 	contrOrg := &Model{

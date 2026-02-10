@@ -43,33 +43,94 @@ func NormalizeFiltersWithAliases(m *Model, filters map[string]any) map[string]an
 	if m == nil || len(filters) == 0 {
 		return filters
 	}
-	changed := false
-	out := make(map[string]any, len(filters))
-	for k, v := range filters {
-		field := k
-		op := ""
-		if i := strings.Index(k, "__"); i >= 0 {
-			field = k[:i]
-			op = k[i+2:]
+
+	var normalize func(any) (any, bool)
+	normalize = func(v any) (any, bool) {
+		switch val := v.(type) {
+		case map[string]any:
+			changed := false
+			out := make(map[string]any, len(val))
+			for k, raw := range val {
+				if k == "or" || k == "and" {
+					if subMap, ok := raw.(map[string]any); ok {
+						nv, ch := normalize(subMap)
+						out[k] = nv
+						if ch {
+							changed = true
+						}
+						continue
+					}
+					if arr, ok := raw.([]any); ok {
+						newArr := make([]any, 0, len(arr))
+						arrChanged := false
+						for _, item := range arr {
+							if subMap, ok := item.(map[string]any); ok {
+								nv, ch := normalize(subMap)
+								newArr = append(newArr, nv)
+								if ch {
+									arrChanged = true
+								}
+							} else {
+								newArr = append(newArr, item)
+							}
+						}
+						out[k] = newArr
+						if arrChanged {
+							changed = true
+						}
+						continue
+					}
+				}
+
+				field := k
+				op := ""
+				if i := strings.Index(k, "__"); i >= 0 {
+					field = k[:i]
+					op = k[i+2:]
+				}
+				fields, comb := ParseCompositeField(field)
+				for i := range fields {
+					fields[i] = ExpandAliasPath(m, fields[i])
+				}
+				newField := strings.Join(fields, comb)
+				if newField != field {
+					changed = true
+				}
+				newKey := newField
+				if op != "" {
+					newKey = newField + "__" + op
+				}
+				out[newKey] = raw
+			}
+			return out, changed
+		case []any:
+			newArr := make([]any, 0, len(val))
+			changed := false
+			for _, item := range val {
+				if subMap, ok := item.(map[string]any); ok {
+					nv, ch := normalize(subMap)
+					newArr = append(newArr, nv)
+					if ch {
+						changed = true
+					}
+				} else {
+					newArr = append(newArr, item)
+				}
+			}
+			return newArr, changed
+		default:
+			return v, false
 		}
-		fields, comb := ParseCompositeField(field)
-		for i := range fields {
-			fields[i] = ExpandAliasPath(m, fields[i])
-		}
-		newField := strings.Join(fields, comb)
-		if newField != field {
-			changed = true
-		}
-		newKey := newField
-		if op != "" {
-			newKey = newField + "__" + op
-		}
-		out[newKey] = v
 	}
+
+	nv, changed := normalize(filters)
 	if !changed {
 		return filters
 	}
-	return out
+	if out, ok := nv.(map[string]any); ok {
+		return out
+	}
+	return filters
 }
 
 // normalizeSortsWithAliases разворачивает алиасы в сортировках.

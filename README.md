@@ -126,23 +126,23 @@ Notes:
 
 Configuration is read from environment variables (see `internal/config/config.go`):
 
-| Env var        | Default                                                           | Description                             |
-| -------------- | ----------------------------------------------------------------- | --------------------------------------- |
-| `PORT`         | `8080`                                                            | HTTP port for the API server            |
-| `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string            |
-| `MODELS_DIR`   | `./db`                                                            | Path to directory with YAML model files |
-| `LOCALE`       | `en`                                                              | Default locale for localization         |
-| `AUTH_ENABLED` | `false`                                                           | Enable JWT auth middleware              |
-| `AUTH_JWT_VALIDATION_TYPE` | `HS256`                                                | JWT signature algorithm: `HS256`/`RS256`/`ES256` |
-| `AUTH_JWT_ISSUER` | *(empty)*                                                      | Required `iss` claim value              |
-| `AUTH_JWT_AUDIENCE` | *(empty)*                                                    | Required `aud` claim value (single value or CSV) |
-| `AUTH_JWT_HMAC_SECRET` | *(empty)*                                                  | Shared secret for `HS256`               |
-| `AUTH_JWT_PUBLIC_KEY` | *(empty)*                                                   | PEM public key for `RS256`/`ES256`      |
-| `AUTH_JWT_PUBLIC_KEY_PATH` | *(empty)*                                              | Path to PEM public key for `RS256`/`ES256` |
-| `AUTH_JWT_CLOCK_SKEW_SEC` | `60`                                                    | Allowed clock skew when validating `exp`/`nbf`/`iat` |
-| `CORS_ALLOW_ORIGIN` | `*`                                                          | Value for `Access-Control-Allow-Origin` |
-| `CORS_ALLOW_CREDENTIALS` | `false`                                               | Set `Access-Control-Allow-Credentials: true` |
-| `ALIAS_CACHE_MAX_BYTES` | `0`                                                   | Max bytes for in-memory alias cache (0 = unlimited) |
+| Env var                    | Default                                                           | Description                                          |
+| -------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
+| `PORT`                     | `8080`                                                            | HTTP port for the API server                         |
+| `POSTGRES_DSN`             | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string                         |
+| `MODELS_DIR`               | `./db`                                                            | Path to directory with YAML model files              |
+| `LOCALE`                   | `en`                                                              | Default locale for localization                      |
+| `AUTH_ENABLED`             | `false`                                                           | Enable JWT auth middleware                           |
+| `AUTH_JWT_VALIDATION_TYPE` | `HS256`                                                           | JWT signature algorithm: `HS256`/`RS256`/`ES256`     |
+| `AUTH_JWT_ISSUER`          | _(empty)_                                                         | Required `iss` claim value                           |
+| `AUTH_JWT_AUDIENCE`        | _(empty)_                                                         | Required `aud` claim value (single value or CSV)     |
+| `AUTH_JWT_HMAC_SECRET`     | _(empty)_                                                         | Shared secret for `HS256`                            |
+| `AUTH_JWT_PUBLIC_KEY`      | _(empty)_                                                         | PEM public key for `RS256`/`ES256`                   |
+| `AUTH_JWT_PUBLIC_KEY_PATH` | _(empty)_                                                         | Path to PEM public key for `RS256`/`ES256`           |
+| `AUTH_JWT_CLOCK_SKEW_SEC`  | `60`                                                              | Allowed clock skew when validating `exp`/`nbf`/`iat` |
+| `CORS_ALLOW_ORIGIN`        | `*`                                                               | Value for `Access-Control-Allow-Origin`              |
+| `CORS_ALLOW_CREDENTIALS`   | `false`                                                           | Set `Access-Control-Allow-Credentials: true`         |
+| `ALIAS_CACHE_MAX_BYTES`    | `0`                                                               | Max bytes for in-memory alias cache (0 = unlimited)  |
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
 
@@ -223,6 +223,7 @@ Key points:
 - `presets` describe which fields to select/return; `type: preset` walks relations, `type: computable` inserts expressions, `type: formatter` post-processes values, `type: nested_field` copies nested JSON branches.
 - `computable` and `aliases` are global per model and can be used in any preset, filter, or sort.
 - Validation occurs once at startup; malformed configs prevent the server from running, ensuring bad schemas don’t reach production.
+- **Design principle:** presets are intentionally _client-shaped_. The engine is optimized to return the smallest JSON needed for client-form, and nothing more. This means there is no “one true” preset naming scheme; the best practice is to define presets that _exactly_ match frontend requirements, even if they differ between projects or screens.
 
 ---
 
@@ -423,7 +424,6 @@ presets:
 - Shorthand form: just <field> → evaluates truthy/falsy.
 
 - Supported literals:
-
   - Numbers: **10**, **3.14**
 
   - Booleans: **true**, **false**

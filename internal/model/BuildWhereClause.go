@@ -169,6 +169,34 @@ func (m *Model) buildWhereClause(
 					}
 					continue
 				}
+				if arr, ok := val.([]any); ok {
+					var parts []squirrel.Sqlizer
+					subAgg := false
+					for _, item := range arr {
+						subMap, ok := item.(map[string]any)
+						if !ok || len(subMap) == 0 {
+							continue
+						}
+						// каждый элемент массива — отдельная группа (AND внутри)
+						if nested, nestedAgg := buildGroupExpr(subMap, "and"); nested != nil {
+							parts = append(parts, nested)
+							if nestedAgg {
+								subAgg = true
+							}
+						}
+					}
+					if len(parts) > 0 {
+						if key == "or" {
+							exprs = append(exprs, squirrel.Or(parts))
+						} else {
+							exprs = append(exprs, squirrel.And(parts))
+						}
+						if subAgg {
+							hasAgg = true
+						}
+					}
+					continue
+				}
 			}
 
 			field := key
@@ -213,6 +241,30 @@ func (m *Model) buildWhereClause(
 						}
 					}
 				}
+				if arr, ok := val.([]any); ok {
+					var parts []squirrel.Sqlizer
+					subAgg := false
+					for _, item := range arr {
+						subMap, ok := item.(map[string]any)
+						if !ok || len(subMap) == 0 {
+							continue
+						}
+						if expr, agg := buildGroupExpr(subMap, "and"); expr != nil {
+							parts = append(parts, expr)
+							if agg {
+								subAgg = true
+							}
+						}
+					}
+					if len(parts) > 0 {
+						expr := squirrel.Or(parts)
+						if subAgg {
+							havingParts = append(havingParts, expr)
+						} else {
+							whereParts = append(whereParts, expr)
+						}
+					}
+				}
 				continue
 			}
 			if key == "and" {
@@ -223,6 +275,21 @@ func (m *Model) buildWhereClause(
 					}
 					if subHaving != nil {
 						havingParts = append(havingParts, subHaving)
+					}
+				}
+				if arr, ok := val.([]any); ok {
+					for _, item := range arr {
+						subMap, ok := item.(map[string]any)
+						if !ok || len(subMap) == 0 {
+							continue
+						}
+						subWhere, subHaving := buildGroupAnd(subMap)
+						if subWhere != nil {
+							whereParts = append(whereParts, subWhere)
+						}
+						if subHaving != nil {
+							havingParts = append(havingParts, subHaving)
+						}
 					}
 				}
 				continue

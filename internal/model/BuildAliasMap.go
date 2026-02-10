@@ -143,13 +143,23 @@ func PathsFromFilters(filters map[string]interface{}) []string {
 	}
 	out := make([]string, 0, len(filters))
 
-	var walk func(map[string]interface{})
-	walk = func(f map[string]interface{}) {
+	var walkAny func(any)
+	walkAny = func(v any) {
+		f, ok := v.(map[string]interface{})
+		if !ok {
+			return
+		}
 		for key, val := range f {
 			// группирующие ключи
 			if (key == "or" || key == "and") && val != nil {
 				if sub, ok := val.(map[string]interface{}); ok {
-					walk(sub)
+					walkAny(sub)
+					continue
+				}
+				if arr, ok := val.([]any); ok {
+					for _, item := range arr {
+						walkAny(item)
+					}
 					continue
 				}
 			}
@@ -166,7 +176,7 @@ func PathsFromFilters(filters map[string]interface{}) []string {
 			}
 		}
 	}
-	walk(filters)
+	walkAny(filters)
 
 	return dedup(out)
 }
