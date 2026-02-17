@@ -53,11 +53,8 @@ func (m *Model) BuildIndexQuery(
 		return sb, fmt.Errorf("preset is nil for model '%s'", m.Table)
 	}
 
-	// 3. Определяем JOIN-ы
-	var filterKeys []string
-	for key := range filters {
-		filterKeys = append(filterKeys, key)
-	}
+	// 3. Определяем JOIN-ы по всем фильтрам, включая вложенные or/and-группы.
+	filterKeys := PathsFromFilters(filters)
 
 	sortFields := make([]string, len(sorts))
 	for i, s := range sorts {
@@ -193,6 +190,12 @@ func (m *Model) BuildIndexQuery(
 			selectCols = append(selectCols, SelectColumn{Expr: expr, Key: "", Type: ""})
 			colExprs = append(colExprs, expr)
 			existingSelect[key] = struct{}{}
+			if isSimpleColumnExpr(expr) {
+				col := baseColumnExpr(expr)
+				if !containsString(groupByCols, col) {
+					groupByCols = append(groupByCols, col)
+				}
+			}
 		}
 
 		if expr, ok := computableOverride[fieldPath]; ok {

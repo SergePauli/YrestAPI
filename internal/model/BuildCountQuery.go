@@ -13,10 +13,7 @@ func (m *Model) BuildCountQuery(aliasMap *AliasMap, preset *DataPreset, filters 
 	sb := squirrel.SelectBuilder{}.PlaceholderFormat(squirrel.Dollar)
 	sb = sb.From(fmt.Sprintf("%s AS main", m.Table))
 
-	var filterKeys []string
-	for key := range filters {
-		filterKeys = append(filterKeys, key)
-	}
+	filterKeys := PathsFromFilters(filters)
 	compPaths := collectComputablePathsForRequest(m, preset, filters, nil)
 	// Определим, какие JOIN-ы нужны — на основе ключей в filters
 	requiredJoins, err := m.DetectJoins(aliasMap, filterKeys, nil, compPaths)

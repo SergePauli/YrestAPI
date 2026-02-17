@@ -153,6 +153,41 @@ func TestAliasShortcutInOrArrayFilters(t *testing.T) {
 	}
 }
 
+func TestAliasShortcutInOrArrayFiltersCount(t *testing.T) {
+	person, preset, _ := aliasShortcutFixture(t)
+
+	filters := map[string]any{
+		"or": []any{
+			map[string]any{"org.name__cnt": "IBM"},
+			map[string]any{"id__eq": 1},
+		},
+	}
+
+	aliasMap, err := person.CreateAliasMap(person, preset, filters, nil)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	sb, err := person.BuildCountQuery(aliasMap, preset, filters)
+	if err != nil {
+		t.Fatalf("BuildCountQuery: %v", err)
+	}
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if !strings.Contains(sql, "organizations AS") {
+		t.Fatalf("expected join to organizations, got: %s", sql)
+	}
+	if !strings.Contains(sql, "t1.name") {
+		t.Fatalf("alias in or-filter not applied in count, sql: %s", sql)
+	}
+	if !strings.Contains(sql, " OR ") {
+		t.Fatalf("expected OR in count where clause, sql: %s", sql)
+	}
+}
+
 func TestAliasShortcutRecursiveInFilters(t *testing.T) {
 	org := &Model{Name: "Organization", Table: "organizations"}
 	contrOrg := &Model{
@@ -364,5 +399,86 @@ func TestDistinctSelectAddsOrderColumns(t *testing.T) {
 	}
 	if !strings.Contains(sql, "t0.name") {
 		t.Fatalf("expected order column added to SELECT, got: %s", sql)
+	}
+}
+
+func TestDistinctSelectAddsOrderColumnsToGroupBy(t *testing.T) {
+	org := &Model{Name: "Organization", Table: "organizations"}
+	contrOrg := &Model{
+		Name:  "ContragentOrganization",
+		Table: "contragent_organizations",
+		Relations: map[string]*ModelRelation{
+			"organization": {Type: "belongs_to", Model: "Organization"},
+		},
+	}
+	contr := &Model{
+		Name:  "Contragent",
+		Table: "contragents",
+		Relations: map[string]*ModelRelation{
+			"contragent_organization": {Type: "belongs_to", Model: "ContragentOrganization"},
+		},
+	}
+	contract := &Model{
+		Name:  "Contract",
+		Table: "contracts",
+		Relations: map[string]*ModelRelation{
+			"contragent": {Type: "belongs_to", Model: "Contragent"},
+		},
+	}
+	stage := &Model{
+		Name:  "Stage",
+		Table: "stages",
+		Relations: map[string]*ModelRelation{
+			"contract": {Type: "has_one", Model: "Contract", FK: "stage_id", PK: "id"},
+		},
+		Presets: map[string]*DataPreset{
+			"list": {
+				Fields: []Field{
+					{Source: "id", Type: "int"},
+				},
+			},
+		},
+	}
+
+	prev := Registry
+	Registry = map[string]*Model{
+		"Stage":                 stage,
+		"Contract":              contract,
+		"Contragent":            contr,
+		"ContragentOrganization": contrOrg,
+		"Organization":          org,
+	}
+	t.Cleanup(func() { Registry = prev })
+	if err := LinkModelRelations(); err != nil {
+		t.Fatalf("LinkModelRelations: %v", err)
+	}
+
+	sorts := []string{"contract.contragent.contragent_organization.organization.name DESC"}
+	preset := stage.Presets["list"]
+	aliasMap, err := stage.CreateAliasMap(stage, preset, nil, sorts)
+	if err != nil {
+		t.Fatalf("CreateAliasMap: %v", err)
+	}
+
+	sb, err := stage.BuildIndexQuery(aliasMap, nil, sorts, preset, 0, 0)
+	if err != nil {
+		t.Fatalf("BuildIndexQuery: %v", err)
+	}
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	orgAlias := aliasMap.PathToAlias["contract.contragent.contragent_organization.organization"]
+	if orgAlias == "" {
+		t.Fatalf("org alias not found in alias map: %+v", aliasMap.PathToAlias)
+	}
+	orderCol := orgAlias + ".name"
+
+	if !strings.Contains(sql, "ORDER BY "+orderCol+" DESC") {
+		t.Fatalf("expected ORDER BY %s DESC, got: %s", orderCol, sql)
+	}
+	if !strings.Contains(sql, "GROUP BY") || !strings.Contains(sql, orderCol) {
+		t.Fatalf("expected GROUP BY to include order column %s, got: %s", orderCol, sql)
 	}
 }
