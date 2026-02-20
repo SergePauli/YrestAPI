@@ -74,12 +74,19 @@ func (m *Model) buildWhereClause(
 		fields, comb := ParseCompositeField(field)
 		parts := make([]squirrel.Sqlizer, 0, len(fields))
 		hasAgg := false
+		baseOp := op
+		caseSensitive := false
+		if strings.HasSuffix(baseOp, "_cs") {
+			baseOp = strings.TrimSuffix(baseOp, "_cs")
+			caseSensitive = true
+		}
 
 		for _, f := range fields {
 			expr := resolveField(f)
 			if expr == "" {
 				continue
 			}
+			fieldType := resolveFilterFieldType(m, f)
 			sqlField := expr
 			agg := isAggregateExpr(expr)
 			if agg {
@@ -89,9 +96,19 @@ func (m *Model) buildWhereClause(
 				hasAgg = true
 			}
 			var cond squirrel.Sqlizer
-			switch op {
+			switch baseOp {
 			case "eq":
-				if b, ok := val.(bool); ok && !b && agg {
+				if s, ok := val.(string); ok {
+					comparisonField := sqlField
+					if needsTextCast(fieldType, "string") {
+						comparisonField = fmt.Sprintf("CAST(%s AS TEXT)", sqlField)
+					}
+					if caseSensitive {
+						cond = squirrel.Expr(fmt.Sprintf("%s = ?", comparisonField), s)
+					} else {
+						cond = squirrel.Expr(fmt.Sprintf("LOWER(%s) = LOWER(?)", comparisonField), s)
+					}
+				} else if b, ok := val.(bool); ok && !b && agg {
 					cond = squirrel.Expr(fmt.Sprintf("(%s = false AND %s IS NOT NULL)", sqlField, sqlField))
 				} else {
 					cond = squirrel.Eq{sqlField: val}
@@ -108,15 +125,39 @@ func (m *Model) buildWhereClause(
 				cond = squirrel.GtOrEq{sqlField: val}
 			case "start":
 				if s, ok := val.(string); ok {
-					cond = squirrel.Like{sqlField: s + "%"}
+					comparisonField := sqlField
+					if needsTextCast(fieldType, "string") {
+						comparisonField = fmt.Sprintf("CAST(%s AS TEXT)", sqlField)
+					}
+					if caseSensitive {
+						cond = squirrel.Expr(fmt.Sprintf("%s LIKE ?", comparisonField), s+"%")
+					} else {
+						cond = squirrel.Expr(fmt.Sprintf("%s ILIKE ?", comparisonField), s+"%")
+					}
 				}
 			case "end":
 				if s, ok := val.(string); ok {
-					cond = squirrel.Like{sqlField: "%" + s}
+					comparisonField := sqlField
+					if needsTextCast(fieldType, "string") {
+						comparisonField = fmt.Sprintf("CAST(%s AS TEXT)", sqlField)
+					}
+					if caseSensitive {
+						cond = squirrel.Expr(fmt.Sprintf("%s LIKE ?", comparisonField), "%"+s)
+					} else {
+						cond = squirrel.Expr(fmt.Sprintf("%s ILIKE ?", comparisonField), "%"+s)
+					}
 				}
 			case "cnt":
 				if s, ok := val.(string); ok {
-					cond = squirrel.Like{sqlField: "%" + s + "%"}
+					comparisonField := sqlField
+					if needsTextCast(fieldType, "string") {
+						comparisonField = fmt.Sprintf("CAST(%s AS TEXT)", sqlField)
+					}
+					if caseSensitive {
+						cond = squirrel.Expr(fmt.Sprintf("%s LIKE ?", comparisonField), "%"+s+"%")
+					} else {
+						cond = squirrel.Expr(fmt.Sprintf("%s ILIKE ?", comparisonField), "%"+s+"%")
+					}
 				}
 			case "null":
 				if b, ok := val.(bool); ok {
@@ -326,4 +367,60 @@ func (m *Model) buildWhereClause(
 		return nil, nil, nil
 	}
 	return where, having, nil
+}
+
+func resolveFilterFieldType(m *Model, fieldPath string) string {
+	if m == nil {
+		return ""
+	}
+	if c, ok := m.Computable[fieldPath]; ok && c != nil {
+		return normalizeFieldType(c.Type)
+	}
+
+	segs := strings.Split(fieldPath, ".")
+	target := m
+	field := fieldPath
+	if len(segs) > 1 {
+		field = segs[len(segs)-1]
+		for i := 0; i < len(segs)-1; i++ {
+			rel := target.Relations[segs[i]]
+			if rel == nil || rel.GetModelRef() == nil {
+				return ""
+			}
+			target = rel.GetModelRef()
+		}
+	}
+
+	if c, ok := target.Computable[field]; ok && c != nil {
+		return normalizeFieldType(c.Type)
+	}
+	for _, p := range target.Presets {
+		for _, f := range p.Fields {
+			if f.Source != field && strings.TrimSpace(f.Alias) != field {
+				continue
+			}
+			if f.Type == "computable" {
+				if c, ok := target.Computable[f.Source]; ok && c != nil {
+					return normalizeFieldType(c.Type)
+				}
+			}
+			return normalizeFieldType(f.Type)
+		}
+	}
+	return ""
+}
+
+func normalizeFieldType(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "uuid" {
+		return "uuid"
+	}
+	return t
+}
+
+func needsTextCast(fieldType, valueType string) bool {
+	if fieldType == "" || valueType == "" {
+		return false
+	}
+	return fieldType != valueType
 }

@@ -63,7 +63,9 @@ Payload:
 - `model` — logical model name from `db/*.yml`.
 - `preset` — preset name inside the model.
 - `filters` — map of `field__op: value`.
-  - Operators: `__eq` (default), `__cnt` (LIKE %v%), `__start` (LIKE v%), `__end` (%v), `__lt`, `__lte`, `__gt`, `__gte`, `__in`.
+  - Operators: `__eq` (default), `__cnt` (contains), `__start` (prefix), `__end` (suffix), `__lt`, `__lte`, `__gt`, `__gte`, `__in`.
+  - String operators `__eq`, `__cnt`, `__start`, `__end` are case-insensitive by default.
+  - Case-sensitive override for strings: `__eq_cs`, `__cnt_cs`, `__start_cs`, `__end_cs`.
   - Null checks: `field__null: true` → `IS NULL`, `field__null: false` → `IS NOT NULL` (aliases: `field__is_null`, `field__not_null`).
   - Grouping: use `or` / `and` keys to nest conditions, e.g.:
     ```json
