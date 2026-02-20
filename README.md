@@ -391,6 +391,43 @@ Key points:
 - Validation occurs once at startup; malformed configs prevent the server from running, ensuring bad schemas don’t reach production.
 - **Design principle:** presets are intentionally _client-shaped_. The engine is optimized to return the smallest JSON needed for client-form, and nothing more. This means there is no “one true” preset naming scheme; the best practice is to define presets that _exactly_ match frontend requirements, even if they differ between projects or screens.
 
+### Recursive/self relations and depth limits
+
+Self-links are supported (for example `Contract -> next -> Contract`), but recursion must be explicitly controlled.
+
+Example:
+
+```yaml
+table: contracts
+relations:
+  next:
+    model: Contract
+    type: has_one
+    fk: prev_contract_id
+    reentrant: true
+    max_depth: 3
+presets:
+  chain:
+    fields:
+      - source: id
+        type: int
+      - source: next
+        type: preset
+        preset: chain
+```
+
+Rules:
+
+- `reentrant: true` is required for returning to an already visited model in the preset graph.
+- `max_depth` limits how many times the same model may appear on one traversal path.
+- You can set `max_depth` on the relation and, if needed, override it on a specific preset field (`field.max_depth` has priority).
+- If the cycle is not allowed (`reentrant: false`) or depth is exceeded, startup validation fails with a clear error.
+
+Why it matters:
+
+- Protects the service from unbounded recursion.
+- Keeps SQL planning and JSON shaping predictable for recursive data structures.
+
 ---
 
 ## 🌐 Localization of strings and constants
