@@ -28,11 +28,175 @@ Everything is configured via YAML — no business logic in code.
 
 ## ⚙️ Quick start
 
+Minimal setup that actually starts the service, including required model and locale config.
+
+Recommended strategy for production: run **YrestAPI in its own container**, next to your main API/BFF and frontend.  
+YrestAPI handles fast read-only data delivery; your core API keeps writes and business logic.  
+This gives a clean pipeline of narrowly specialized containers.
+
+Prerequisites:
+
+- Go `1.24+` (for local run variant)
+- Docker (for container variant)
+- curl
+
+### Option A: local run (Go + local PostgreSQL)
+
 ```bash
-git clone https://github.com/your-org/yrestapi
-cd yrestapi
-go run main.go
+git clone https://github.com/SergePauli/YrestAPI.git
+cd YrestAPI
+
+# 1) Start PostgreSQL if needed (example via Docker)
+docker run -d --name yrestapi-pg \
+  -e POSTGRES_DB=app \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# 2) Wait until DB is ready
+until docker exec yrestapi-pg pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 1; done
+
+# 3) Minimal DB schema for demo model
+docker exec -i yrestapi-pg psql -U postgres -d app <<'SQL'
+CREATE TABLE IF NOT EXISTS areas (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL
+);
+INSERT INTO areas (name) VALUES ('Metro Manila'), ('Moscow Oblast') ON CONFLICT DO NOTHING;
+SQL
+
+# 4) Create MODELS_DIR with at least one model preset
+mkdir -p db
+cat > db/Area.yml <<'YAML'
+table: areas
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string
+YAML
+
+# 5) Create locale config (LOCALE=en -> cfg/locales/en.yml)
+mkdir -p cfg/locales
+cat > cfg/locales/en.yml <<'YAML'
+layoutSettings:
+  date: "2006-01-02"
+  ttime: "15:04:05"
+  datetime: "2006-01-02 15:04:05"
+YAML
+
+# 6) Minimal runtime config
+cat > .env <<'EOF'
+PORT=8080
+POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/app?sslmode=disable
+MODELS_DIR=./db
+LOCALE=en
+AUTH_ENABLED=false
+EOF
+
+# 7) Run API
+go run ./cmd -d
 ```
+
+Smoke check (in another terminal):
+
+```bash
+curl -sS -X POST http://localhost:8080/api/index \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Area","preset":"item","limit":2}'
+```
+
+### Option B: production-like run (PostgreSQL + YrestAPI in Docker)
+
+```bash
+git clone https://github.com/SergePauli/YrestAPI.git
+cd YrestAPI
+
+# 1) Create network and start PostgreSQL
+docker network create yrestapi-net
+docker run -d --name yrestapi-pg \
+  --network yrestapi-net \
+  -e POSTGRES_DB=app \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  postgres:16-alpine
+
+# 2) Wait until DB is ready
+until docker exec yrestapi-pg pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 1; done
+
+# 3) Minimal DB schema for demo model
+docker exec -i yrestapi-pg psql -U postgres -d app <<'SQL'
+CREATE TABLE IF NOT EXISTS areas (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL
+);
+INSERT INTO areas (name) VALUES ('Metro Manila'), ('Moscow Oblast') ON CONFLICT DO NOTHING;
+SQL
+
+# 4) Create MODELS_DIR and locale config in project
+mkdir -p db cfg/locales
+cat > db/Area.yml <<'YAML'
+table: areas
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: name
+        type: string
+YAML
+cat > cfg/locales/en.yml <<'YAML'
+layoutSettings:
+  date: "2006-01-02"
+  ttime: "15:04:05"
+  datetime: "2006-01-02 15:04:05"
+YAML
+
+# 5) Build and run YrestAPI container
+docker build -t yrestapi:local .
+docker run --rm --name yrestapi \
+  --network yrestapi-net \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  -e POSTGRES_DSN=postgres://postgres:postgres@yrestapi-pg:5432/app?sslmode=disable \
+  -e MODELS_DIR=/app/db \
+  -e LOCALE=en \
+  -e AUTH_ENABLED=false \
+  yrestapi:local
+```
+
+Smoke check (in another terminal):
+
+```bash
+curl -sS -X POST http://localhost:8080/api/index \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Area","preset":"item","limit":2}'
+```
+
+Optional cleanup:
+
+```bash
+docker rm -f yrestapi yrestapi-pg 2>/dev/null || true
+docker network rm yrestapi-net 2>/dev/null || true
+```
+
+---
+
+## ⚙️ How it works (short version)
+
+After startup, YrestAPI does four things:
+
+1. Loads YAML models from `MODELS_DIR`.
+2. Builds and validates an in-memory registry:
+   - models and relations;
+   - available JSON presets for each model.
+3. Starts HTTP server with only two read endpoints: `/api/index` and `/api/count`.
+4. For each request, resolves model + preset, generates SQL, fetches rows from PostgreSQL, and returns JSON in the requested preset shape.
+
+In practice, this means the API contract is declared in YAML, while runtime execution stays fast thanks to compiled Go code and prebuilt registry metadata.
 
 ---
 
