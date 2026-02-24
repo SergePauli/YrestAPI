@@ -54,6 +54,10 @@ docker run -d --name yrestapi-pg \
   -p 5432:5432 \
   postgres:16-alpine
 
+# If local port 5432 is busy, use:
+# -p 5433:5432
+# and set POSTGRES_DSN host port to 5433 in .env.
+
 # 2) Wait until DB is ready
 until docker exec yrestapi-pg pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 1; done
 
