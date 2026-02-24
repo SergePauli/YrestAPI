@@ -185,6 +185,29 @@ docker network rm yrestapi-net 2>/dev/null || true
 
 ---
 
+## 🧪 Running tests
+
+`make test` runs both unit and integration tests (`go test -v ./...`).
+
+Before running tests:
+
+1. Ensure PostgreSQL is available on local host (`localhost` or `127.0.0.1`).
+2. Ensure `POSTGRES_DSN` is valid (default: `postgres://postgres:postgres@localhost:5432/app?sslmode=disable`).
+3. Ensure `APP_ENV` is not `production`.
+
+Run:
+
+```bash
+make test
+```
+
+Integration test behavior:
+
+- Test bootstrap derives test DSN from `POSTGRES_DSN`, creates DB `test`, applies migrations from `migrations/`, and drops DB `test` after tests.
+- Non-local DB hosts are rejected for safety.
+
+---
+
 ## ⚙️ How it works (short version)
 
 After startup, YrestAPI does four things:
