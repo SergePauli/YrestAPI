@@ -1,0 +1,58 @@
+table: contracts
+
+relations:
+  area:
+    type: belongs_to
+    model: Area
+    fk: area_id
+  prev:
+    type: has_one
+    model: Contract
+    fk: id
+    pk: prev_contract_id
+    reentrant: true
+    max_depth: 3
+  next:
+    type: has_one
+    model: Contract
+    fk: prev_contract_id
+    pk: id
+    reentrant: true
+    max_depth: 3
+
+presets:
+  item:
+    fields:
+      - source: id
+        type: int
+      - source: number
+        type: string
+      - source: area
+        type: preset
+        preset: item
+      - source: prev_contract_id
+        type: int
+  chain_prev:
+    fields:
+      - source: id
+        type: int
+      - source: number
+        type: string
+      - source: area
+        type: preset
+        preset: item
+      - source: prev
+        type: preset
+        preset: chain_prev
+  chain_next:
+    fields:
+      - source: id
+        type: int
+      - source: number
+        type: string
+      - source: area
+        type: preset
+        preset: item
+      - source: next
+        type: preset
+        preset: chain_next

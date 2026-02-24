@@ -29,4 +29,17 @@ func Test_Registry_Sanity_OnComplexRelations(t *testing.T) {
 		t.Fatalf("Department.parent must be reentrant with max_depth, got: %#v", p)
 	}
 
+	contract := model.Registry["Contract"]
+	if contract == nil {
+		t.Fatalf("Contract model missing in registry")
+	}
+	if rel := contract.Relations["area"]; rel == nil || rel.Type != "belongs_to" || rel.Model != "Area" {
+		t.Fatalf("Contract.area must be belongs_to Area, got: %#v", rel)
+	}
+	if rel := contract.Relations["prev"]; rel == nil || rel.Type != "has_one" || !rel.Reentrant || rel.MaxDepth == 0 {
+		t.Fatalf("Contract.prev must be reentrant has_one with max_depth, got: %#v", rel)
+	}
+	if rel := contract.Relations["next"]; rel == nil || rel.Type != "has_one" || !rel.Reentrant || rel.MaxDepth == 0 {
+		t.Fatalf("Contract.next must be reentrant has_one with max_depth, got: %#v", rel)
+	}
 }

@@ -448,7 +448,9 @@ Rules:
 - `reentrant: true` is required for returning to an already visited model in the preset graph.
 - `max_depth` limits how many times the same model may appear on one traversal path.
 - You can set `max_depth` on the relation and, if needed, override it on a specific preset field (`field.max_depth` has priority).
-- If the cycle is not allowed (`reentrant: false`) or depth is exceeded, startup validation fails with a clear error.
+- If `reentrant: false`, startup validation fails with a clear error on cyclic re-entry.
+- If `max_depth` is exceeded, traversal is capped at that depth (no startup failure).
+- If `max_depth` is omitted for a reentrant cycle, default `max_depth=3` is applied and logged as a warning.
 
 Why it matters:
 

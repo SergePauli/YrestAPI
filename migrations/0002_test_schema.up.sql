@@ -112,8 +112,17 @@ CREATE TABLE IF NOT EXISTS project_members (
   PRIMARY KEY (project_id, person_id)
 );
 
+-- Контракты: self-chain по prev/next + belongs_to area
+CREATE TABLE IF NOT EXISTS contracts (
+  id               SERIAL PRIMARY KEY,
+  number           TEXT NOT NULL UNIQUE,
+  area_id          INT NOT NULL REFERENCES areas(id) ON DELETE RESTRICT,
+  prev_contract_id INT REFERENCES contracts(id) ON DELETE SET NULL
+);
+
 -- Индексы для типичных запросов/сортировок
 CREATE INDEX IF NOT EXISTS idx_employees_org ON employees(organization_id);
 CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);
 CREATE INDEX IF NOT EXISTS idx_addresses_area ON addresses(area_id);
 CREATE INDEX IF NOT EXISTS idx_person_contacts_primary ON person_contacts(person_id) WHERE is_primary;
+CREATE INDEX IF NOT EXISTS idx_contracts_prev_contract_id ON contracts(prev_contract_id);

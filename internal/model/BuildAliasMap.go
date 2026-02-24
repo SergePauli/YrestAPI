@@ -16,8 +16,8 @@ import (
 // Правила:
 //   - Разрешённые типы связей для пути: has_one, has_many, belongs_to.
 //   - re-entry считается "возвратом в уже встречавшуюся модель по пути":
-//     нужен rel.Reentrant == true и repeats+1 <= effMax, где effMax = field.MaxDepth (для полей его тут нет) или rel.MaxDepth,
-//     если effMax <= 0 — трактуем как 1 (только одно посещение модели на пути; без возвратов).
+//     нужен rel.Reentrant == true и repeats+1 <= effMax, где effMax = rel.MaxDepth
+//     (или defaultReentrantMaxDepth, если max_depth не задан явно).
 func BuildAliasMap(model *Model, preset *DataPreset, filters map[string]interface{}, sorts []string) (*AliasMap, error) {
 	if model == nil {
 		return nil, fmt.Errorf("BuildAliasMap: model is nil")
@@ -106,10 +106,7 @@ func ensureAliasPath(root *Model, am *AliasMap, fullPath string, nextIdx *int) e
 		if _, exists := am.PathToAlias[path]; !exists {
 			repeats := countModelIn(stack, nextModel)
 			if repeats > 0 {
-				effMax := rel.MaxDepth
-				if effMax <= 0 {
-					effMax = 1 // посещений модели на одном пути по умолчанию
-				}
+				effMax, _ := resolveMaxDepth(0, rel.MaxDepth)
 				if !rel.Reentrant {
 					return fmt.Errorf("not reentrant: returning to model %s via %q at %q", rel.Model, seg, path)
 				}

@@ -1,4 +1,4 @@
-TRUNCATE TABLE project_members, projects,
+TRUNCATE TABLE project_members, projects, contracts,
   contragent_addresses, contragent_organizations, contragents,
   addresses,
   person_contacts, contacts,

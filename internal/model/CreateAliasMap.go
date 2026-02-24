@@ -100,7 +100,7 @@ func buildPresetAliasMapsForModel(m *Model, visited map[*Model]bool) error {
 
 // Собирает все relation-пути ("a", "a.b", "a.b.c") из NestedPreset-полей данного пресета.
 // Учитывает политику ре-энтри по МОДЕЛИ: rel.Reentrant и лимит посещений модели effMax.
-// По умолчанию effMax=1 (только одно посещение модели на пути; без возвратов).
+// При отсутствии field.max_depth и relation.max_depth используется defaultReentrantMaxDepth.
 func collectPresetRelationPaths(root *Model, presetName string) ([]string, error) {
 	set := make(map[string]struct{})
 	var dfs func(curr *Model, pName, currPath string, stack []*Model) error
@@ -131,13 +131,7 @@ func collectPresetRelationPaths(root *Model, presetName string) ([]string, error
 				}
 			}
 			if repeats > 0 {
-				eff := f.MaxDepth
-				if eff <= 0 {
-					eff = rel.MaxDepth
-				}
-				if eff <= 0 {
-					eff = 1
-				} // трактуем как "макс. посещений модели на пути"
+				eff, _ := resolveMaxDepth(f.MaxDepth, rel.MaxDepth) // трактуем как "макс. посещений модели на пути"
 				if !rel.Reentrant || repeats >= eff {
 					// путь добавили, но глубже НЕ идём
 					continue

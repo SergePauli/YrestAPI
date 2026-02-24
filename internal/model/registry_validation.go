@@ -3,6 +3,8 @@ package model
 import (
 	"fmt"
 
+	"YrestAPI/internal/logger"
+
 	"strings"
 )
 
@@ -30,14 +32,15 @@ func validatePresetGraph(modelName, presetName string) error {
 	pathModels := []string{modelName}
 	// сколько раз модель встречалась на текущем пути
 	modelCounts := map[string]int{modelName: 1}
-	return dfsPresetWithPolicy(modelName, presetName, pathNodes, pathModels, modelCounts)
+	warnedDefaults := map[string]bool{}
+	return dfsPresetWithPolicy(modelName, presetName, pathNodes, pathModels, modelCounts, warnedDefaults)
 
 }
 
 // dfsPresetWithPolicy — основной обход.
 // Разрешает возвращаться к уже встреченным узлам ТОЛЬКО если связь reentrant
 // и не превышен эффективный maxDepth (берётся из поля или связи).
-func dfsPresetWithPolicy(modelName, presetName string, pathNodes, pathModels []string, modelCounts map[string]int) error {
+func dfsPresetWithPolicy(modelName, presetName string, pathNodes, pathModels []string, modelCounts map[string]int, warnedDefaults map[string]bool) error {
 	model, ok := Registry[modelName]
 	if !ok {
 		return fmt.Errorf("model not found: %s", modelName)
@@ -110,16 +113,24 @@ func dfsPresetWithPolicy(modelName, presetName string, pathNodes, pathModels []s
 					nestedModelName, f.Source, strings.Join(pathNodes, " → "), nestedModelName, nestedPresetName,
 				)
 			}
-			// бюджет глубины: поле имеет приоритет, затем связь; по умолчанию разрешаем один повтор
-			effMax := effectiveMaxDepth(f.MaxDepth, rel.MaxDepth)
-			if effMax <= 0 {
-				effMax = 1
+			// бюджет глубины: поле имеет приоритет, затем связь; при отсутствии явных значений используется дефолт
+			effMax, usedDefault := resolveMaxDepth(f.MaxDepth, rel.MaxDepth)
+			if usedDefault {
+				warnKey := modelName + "." + presetName + ":" + f.Source + "->" + nestedModelName
+				if !warnedDefaults[warnKey] {
+					logger.Warn("default_max_depth_applied", map[string]any{
+						"model":      modelName,
+						"preset":     presetName,
+						"relation":   f.Source,
+						"next_model": nestedModelName,
+						"max_depth":  effMax,
+					})
+					warnedDefaults[warnKey] = true
+				}
 			}
 			if seen >= effMax {
-				return fmt.Errorf(
-					"cycle would exceed max_depth for model %s (eff.max_depth=%d). Path: %s → %s.%s",
-					nestedModelName, effMax, strings.Join(pathNodes, " → "), nestedModelName, nestedPresetName,
-				)
+				// Допустимый цикл: глубже не уходим, чтобы ограничить рекурсию.
+				continue
 			}
 		}
 
@@ -131,7 +142,7 @@ func dfsPresetWithPolicy(modelName, presetName string, pathNodes, pathModels []s
 		newCounts := cloneCounts(modelCounts)
 		newCounts[nestedModelName] = seen + 1
 
-		if err := dfsPresetWithPolicy(nestedModelName, nestedPresetName, newPathNodes, newPathModels, newCounts); err != nil {
+		if err := dfsPresetWithPolicy(nestedModelName, nestedPresetName, newPathNodes, newPathModels, newCounts, warnedDefaults); err != nil {
 			return err
 		}
 	}
@@ -157,15 +168,4 @@ func cloneCounts(m map[string]int) map[string]int {
 		cp[k] = v
 	}
 	return cp
-}
-
-func effectiveMaxDepth(fieldMax, relMax int) int {
-	switch {
-	case fieldMax > 0:
-		return fieldMax
-	case relMax > 0:
-		return relMax
-	default:
-		return 0
-	}
 }

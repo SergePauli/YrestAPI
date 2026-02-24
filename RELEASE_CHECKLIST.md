@@ -12,10 +12,10 @@ Use this checklist for `v1.0.0` and future releases.
 ## 2. Quality gates
 
 - [x] Run full test suite: `go test ./...`.
-- [ ] Run quick startup test from `README.md` (at least one option).
-- [ ] Validate startup failure behavior for broken YAML (negative test).
-- [ ] Verify recursive relation guardrails (`reentrant`, `max_depth`) with at least one real config case.
-- [ ] Check that `/api/index` and `/api/count` both return expected responses on smoke dataset.
+- [x] Run quick startup test from `README.md` (at least one option).
+- [x] Validate startup failure behavior for broken YAML (negative test).
+- [x] Verify recursive relation guardrails (`reentrant`, `max_depth`) with at least one real config case.
+- [x] Check that `/api/index` and `/api/count` both return expected responses on smoke dataset.
 
 ## 3. Docs and release notes
 

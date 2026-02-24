@@ -97,3 +97,11 @@ INSERT INTO project_members (project_id, person_id, role, joined_at) VALUES
   (901,3,'Owner','2024-05-20'),
   (902,2,'Researcher','2023-10-10')
 ON CONFLICT DO NOTHING;
+
+-- Контракты: линейная self-chain 1 -> 2 -> 3 -> 4 (через prev_contract_id)
+INSERT INTO contracts (id, number, area_id, prev_contract_id) VALUES
+  (1,'C-001',1,NULL),
+  (2,'C-002',1,1),
+  (3,'C-003',2,2),
+  (4,'C-004',2,3)
+ON CONFLICT DO NOTHING;

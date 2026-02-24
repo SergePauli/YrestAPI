@@ -80,8 +80,6 @@ presets:
 	}
 }
 
-
-
 // Сравнение списков полей с учётом только значимых для теста атрибутов.
 // Если есть служебные поля/ссылки — игнорим их.
 func fieldsEqual(got, want []Field) bool {
@@ -103,6 +101,7 @@ func fieldsEqual(got, want []Field) bool {
 	}
 	return reflect.DeepEqual(gg, ww)
 }
+
 // keyOf как в резолвере: alias приоритетнее, иначе source
 func keyOfField(f Field) string {
 	if s := strings.TrimSpace(f.Alias); s != "" {
@@ -391,7 +390,7 @@ presets:
         preset: mini
 `
 
-contragentY := `
+	contragentY := `
 table: contragents
 relations:
   contracts:
@@ -455,13 +454,13 @@ presets:
 `
 	// файлы
 	write(t, dir, "Contract.yml", contractY)
-	write(t, dir, "Contragent.yml", contragentY)	
+	write(t, dir, "Contragent.yml", contragentY)
 	mustLoadAndExpectValidateErr(t, dir, "not reentrant")
 }
 
-// Превышение лимита глубины: позволен один ре-энтри, но цепочка делает два
-// Contract.card -> contragent.mini -> contracts.list2 -> contragent.mini  (второй заход в mini)
-func TestValidatePresets_ReentrantDepthExceeded(t *testing.T) {
+// Превышение лимита глубины больше не является ошибкой валидации:
+// обход должен остановиться на лимите и успешно завершиться.
+func TestValidatePresets_ReentrantDepthExceeded_IsCapped(t *testing.T) {
 	dir := t.TempDir()
 
 	contractY := `
@@ -508,7 +507,7 @@ presets:
 	write(t, dir, "Contract.yml", contractY)
 	write(t, dir, "Contragent.yml", contragentY)
 
-	mustLoadAndExpectValidateErr(t, dir, "exceed max_depth")
+	mustLoadAndValidate(t, dir)
 }
 
 // Требование: поле с NestedPreset должно быть type=preset
@@ -616,7 +615,6 @@ presets:
 	// Ожидаем ошибку: "unsupported type" (валидатор теперь разрешает has_one, has_many, belongs_to)
 	mustLoadAndExpectValidateErr(t, dir, "unsupported type")
 }
-
 
 // Ошибка: отсутствующий nested preset
 func TestValidatePresets_MissingNestedPreset(t *testing.T) {
