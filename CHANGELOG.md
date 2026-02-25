@@ -1,24 +1,22 @@
 # Changelog
 
-## [0.1.0] - 2025-08-14
-### Added
-- **/index endpoint**
-  - Recursive relation resolution (`has_one`, `has_many`, `belongs_to`, `through`)
-  - Formatters and computed fields
-  - Filters and sorting
-  - Grouping and merging of child data
-  - Removal of `internal` fields and alias prefixes
+All notable changes to this project will be documented in this file.
 
-- **YAML model validator**
-  - Checks allowed keys at all structural levels
-  - Validates allowed values for `type` in fields
-  - Errors for typos in keys and values
-  - Warnings for empty `fields` in presets
+## [1.0.0] - 2026-02-24
+
+### Added
+- Initial stable release of YrestAPI.
+- Read-only JSON API endpoints: `/api/index` and `/api/count`.
+- Declarative YAML model system with relations: `has_one`, `has_many`, `belongs_to`, `through`.
+- Preset-driven JSON shaping, including nested presets.
+- Formatter and computable field support.
+- Integration test dataset and smoke coverage for complex relations.
+- Recursive relation guardrails with `reentrant` and `max_depth`.
 
 ### Changed
-- Refactored SQL query generation into dedicated functions
-- Improved alias handling and prefix removal
+- Startup validation for recursive presets now caps traversal by `max_depth` instead of failing on depth overflow.
+- Default recursive depth policy introduced for reentrant cycles when `max_depth` is omitted (`max_depth=3`), with warning logs.
 
 ### Fixed
-- Fixed overwriting of formatted values when applying formatters multiple times
-- Fixed crash when `nested_preset` is missing for a `preset`-type field
+- Startup errors now print actionable messages to stderr (not only `exit status 1`).
+- README test instructions clarified for non-default PostgreSQL port mapping.

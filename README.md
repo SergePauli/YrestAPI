@@ -815,3 +815,13 @@ presets:
   ```
   The `contacts` array from the nested `person` branch will be copied to the current item, even if `person` itself is not exposed in the response.
 - Works for arrays or scalars; alias is optional (defaults to the source path).
+
+---
+
+## Known limitations
+
+- The service is read-only by design: only `/api/index` and `/api/count` are provided.
+- PostgreSQL is the only supported database backend.
+- Model configuration is loaded and validated on startup; changing YAML files requires service restart.
+- Polymorphic relation resolution is local and based on `<relation>_type` values present in data; invalid type values are skipped at runtime.
+- Integration tests are safety-scoped to local PostgreSQL hosts (`localhost` / `127.0.0.1`) and create/drop a temporary `test` database.

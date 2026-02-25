@@ -19,19 +19,17 @@ Use this checklist for `v1.0.0` and future releases.
 
 ## 3. Docs and release notes
 
-- [ ] Update `CHANGELOG.md` with a new version section and date.
-- [ ] Ensure `README.md` Quick Start is still executable as written.
-- [ ] Ensure `README.md` documents `MODELS_DIR` contents (at least one model file).
-- [ ] Ensure `README.md` documents `cfg/locales/<locale>.yml` for selected `LOCALE`.
-- [ ] Add/refresh known limitations section (if any).
-- [ ] Prepare concise GitHub Release notes (what shipped, why it matters, upgrade notes).
+- [Х] Update `CHANGELOG.md` with a new version section and date.
+- [Х] Ensure `README.md` documents `cfg/locales/<locale>.yml` for selected `LOCALE`.
+- [Х] Add/refresh known limitations section (if any).
+- [x] Prepare concise GitHub Release notes (what shipped, why it matters, upgrade notes).
 
 ## 4. Versioning and artifacts
 
-- [ ] Pick semantic version (example: `v1.0.0`).
-- [ ] Build release image: `docker build -t yrestapi:<version> .`.
-- [ ] Smoke test the built image against PostgreSQL.
-- [ ] Tag release commit:
+- [x] Pick semantic version (example: `v1.0.0`).
+- [x] Build release image: `docker build -t yrestapi:<version> .`.
+- [x] Smoke test the built image against PostgreSQL.
+- [x] Tag release commit:
 
 ```bash
 git tag -a v1.0.0 -m "v1.0.0"
