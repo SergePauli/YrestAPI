@@ -4,10 +4,10 @@ Use this checklist for `v1.0.0` and future releases.
 
 ## 1. Scope freeze
 
-- [ ] Confirm release scope (what is included and what is explicitly out of scope).
-- [ ] Freeze feature changes; only bugfix/docs/test changes allowed.
-- [ ] Confirm API contract for this release (`/api/index`, `/api/count`).
-- [ ] Confirm supported YAML capabilities for this release (relations, presets, filters, sorting, recursion limits).
+- [Х] Confirm release scope (what is included and what is explicitly out of scope).
+- [Х] Freeze feature changes; only bugfix/docs/test changes allowed.
+- [Х] Confirm API contract for this release (`/api/index`, `/api/count`).
+- [Х] Confirm supported YAML capabilities for this release (relations, presets, filters, sorting, recursion limits).
 
 ## 2. Quality gates
 
@@ -36,21 +36,21 @@ git tag -a v1.0.0 -m "v1.0.0"
 git push origin v1.0.0
 ```
 
-- [ ] Push code branch:
+- [x] Push code branch:
 
 ```bash
 git push origin main
 ```
 
-- [ ] Publish GitHub Release for the tag.
+- [Х] Publish GitHub Release for the tag.
 
 ## 5. Operational readiness
 
-- [ ] Confirm production env template (`PORT`, `POSTGRES_DSN`, `MODELS_DIR`, `LOCALE`, auth and CORS vars).
-- [ ] Confirm logging path/permissions in container runtime.
-- [ ] Define container health check strategy (endpoint or startup/readiness policy).
-- [ ] Validate auth mode used in production (`AUTH_ENABLED` + JWT settings).
-- [ ] Validate CORS policy for production (avoid permissive defaults unless intended).
+- [Х] Confirm production env template (`PORT`, `POSTGRES_DSN`, `MODELS_DIR`, `LOCALE`, auth and CORS vars).
+- [Х] Confirm logging path/permissions in container runtime.
+- [Х] Define container health check strategy (endpoint or startup/readiness policy).
+- [Х] Validate auth mode used in production (`AUTH_ENABLED` + JWT settings).
+- [Х] Validate CORS policy for production (avoid permissive defaults unless intended).
 
 ## 6. Post-release
 
@@ -61,8 +61,8 @@ git push origin main
 
 ## Definition of done for `v1.0.0`
 
-- [ ] Tests pass.
-- [ ] Changelog updated.
-- [ ] README Quick Start verified.
-- [ ] Docker image published and verified.
-- [ ] Git tag and GitHub Release published.
+- [Х] Tests pass.
+- [Х] Changelog updated.
+- [Х] README Quick Start verified.
+- [Х] Docker image published and verified.
+- [Х] Git tag and GitHub Release published.

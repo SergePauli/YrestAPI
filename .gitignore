@@ -1,6 +1,7 @@
 # Go build
 /bin/
 /tmp/
+/dist/
 /db/
 /cfg/
 .cache/
