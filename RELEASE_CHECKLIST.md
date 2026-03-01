@@ -54,10 +54,10 @@ git push origin main
 
 ## 6. Post-release
 
-- [ ] Re-run smoke test on published artifact.
-- [ ] Announce release with links to docs and changelog.
-- [ ] Create follow-up issues for postponed items (`v1.1+` backlog).
-- [ ] Monitor first adopter feedback and production errors for 24-72h.
+- [x] Re-run smoke test on published artifact.
+- [x] Announce release with links to docs and changelog.
+- [x] Create follow-up issues for postponed items (`v1.1+` backlog).
+- [x] Monitor first adopter feedback and production errors for 24-72h.
 
 ## Definition of done for `v1.0.0`
 
