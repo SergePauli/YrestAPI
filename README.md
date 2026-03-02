@@ -371,6 +371,35 @@ AUTH_JWT_CLOCK_SKEW_SEC=60
 
 ---
 
+## 🔄 Импорт
+
+### Импорт из DSN
+
+Генерация YAML-моделей из PostgreSQL схемы по `POSTGRES_DSN`:
+
+```bash
+# help
+make import ARGS="-help"
+
+# dry-run: вывести сгенерированные модели в stdout
+make import ARGS="-dry-run"
+
+# только простые таблицы (без исходящих FK)
+make import ARGS="-dry-run -only-simple"
+
+# записать файлы в каталог
+make import ARGS="-out ./db_imported"
+
+# явный DSN (если не хотите брать из .env)
+make import ARGS="-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable' -out ./db_imported"
+```
+
+Поддерживаемые режимы для SQL-импорта:
+- `-only-simple` — первый этап: таблицы без исходящих связей.
+- без `-only-simple` — импорт моделей со связями `belongs_to` и добавлением связанных `item`-пресетов в `full_info`.
+
+---
+
 ## 🏗️ How the engine works
 
 - At startup the service loads all `.yml` model files from `MODELS_DIR`, builds a registry of models, relations, presets, computable fields, aliases, and validates the graph. This registry is kept in memory and reused for all requests; database connections come from the pgx pool.

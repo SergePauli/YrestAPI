@@ -41,6 +41,13 @@ test:
 	go test -v ./...
 
 # ================================================
+# make import — генерация YAML-моделей из SQL introspection
+# Пример: make import ARGS="-dry-run -schema public"
+import:
+	@echo "▶️  Импорт моделей из SQL..."
+	go run ./cmd/sqlimport $(ARGS)
+
+# ================================================
 # make clean — очистка скомпилированных файлов
 clean:
 	@echo "▶️  Очистка скомпилированных файлов..."
