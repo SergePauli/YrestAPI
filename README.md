@@ -371,32 +371,32 @@ AUTH_JWT_CLOCK_SKEW_SEC=60
 
 ---
 
-## 🔄 Импорт
+## 🔄 Import
 
-### Импорт из DSN
+### Import from DSN
 
-Генерация YAML-моделей из PostgreSQL схемы по `POSTGRES_DSN`:
+Generate YAML models from a PostgreSQL schema via `POSTGRES_DSN`:
 
 ```bash
 # help
 make import ARGS="-help"
 
-# dry-run: вывести сгенерированные модели в stdout
+# dry-run: print generated models to stdout
 make import ARGS="-dry-run"
 
-# только простые таблицы (без исходящих FK)
+# only simple tables (without outgoing FKs)
 make import ARGS="-dry-run -only-simple"
 
-# записать файлы в каталог
+# write files to an output directory
 make import ARGS="-out ./db_imported"
 
-# явный DSN (если не хотите брать из .env)
+# explicit DSN (if you do not want to use .env)
 make import ARGS="-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable' -out ./db_imported"
 ```
 
-Поддерживаемые режимы для SQL-импорта:
-- `-only-simple` — первый этап: таблицы без исходящих связей.
-- без `-only-simple` — импорт моделей со связями `belongs_to` и добавлением связанных `item`-пресетов в `full_info`.
+Supported SQL import modes:
+- `-only-simple` - phase one: tables without outgoing relations.
+- without `-only-simple` - imports models with `belongs_to` relations and adds related `item` presets into `full_info`.
 
 ---
 
@@ -844,6 +844,13 @@ presets:
   ```
   The `contacts` array from the nested `person` branch will be copied to the current item, even if `person` itself is not exposed in the response.
 - Works for arrays or scalars; alias is optional (defaults to the source path).
+
+---
+
+## 📄 License
+
+YrestAPI is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later).
+See [LICENSE.txt](LICENSE.txt) for the full text.
 
 ---
 

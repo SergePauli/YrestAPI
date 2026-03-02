@@ -28,6 +28,8 @@ func main() {
 	debugFlag := flag.Bool("d", false, "enable debug logging")
 	flag.Parse()
 
+	log.Printf("YrestAPI Copyright (C) 2025-2026 Serge Pauli and contributors")
+
 	cfg := config.LoadConfig()
 	if err := logger.Init("."); err != nil {
 		startupFatal("log_init_failed", err)
