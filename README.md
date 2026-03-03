@@ -396,7 +396,20 @@ make import ARGS="-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable'
 
 Supported SQL import modes:
 - `-only-simple` - phase one: tables without outgoing relations.
-- without `-only-simple` - imports models with `belongs_to` relations and adds related `item` presets into `full_info`.
+- without `-only-simple` - imports models with `belongs_to` and reverse `has_many` relations; also adds related `item` presets into `full_info` for `belongs_to`.
+
+After import, each generated `has_many` relation gets a helper preset `with_<relation>` with one field:
+
+```yaml
+presets:
+  with_project_members:
+    fields:
+      - source: project_members
+        type: preset
+        preset: item
+```
+
+This makes post-import setup simple: keep `full_info` as a base and extend it via `extends` with any generated `has_many` preset, or with all of them when all multiplicity relations are needed in output.
 
 ---
 

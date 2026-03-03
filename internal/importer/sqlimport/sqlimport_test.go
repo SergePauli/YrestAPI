@@ -81,3 +81,59 @@ func TestBuildListTablesQuery(t *testing.T) {
 		t.Fatalf("did not expect full query to filter foreign keys, got: %s", qFull)
 	}
 }
+
+func TestRelationNameFromTable(t *testing.T) {
+	if got := relationNameFromTable(" Project_Members "); got != "project_members" {
+		t.Fatalf("relationNameFromTable=%q, want %q", got, "project_members")
+	}
+}
+
+func TestUniqueRelationName(t *testing.T) {
+	relations := map[string]relationYAML{
+		"project_members":   {Type: "has_many", Model: "ProjectMember"},
+		"project_members_2": {Type: "has_many", Model: "ProjectMember"},
+	}
+	got := uniqueRelationName(relations, "project_members")
+	if got != "project_members_3" {
+		t.Fatalf("uniqueRelationName=%q, want %q", got, "project_members_3")
+	}
+}
+
+func TestAddHasManyRelationPresets(t *testing.T) {
+	presets := map[string]presetYAML{
+		"item":      {Fields: []fieldYAML{{Source: "id", Type: "int"}}},
+		"full_info": {Fields: []fieldYAML{{Source: "id", Type: "int"}}},
+	}
+	relations := map[string]relationYAML{
+		"organization": {Type: "belongs_to", Model: "Organization"},
+		"members":      {Type: "has_many", Model: "ProjectMember"},
+	}
+
+	addHasManyRelationPresets(presets, relations)
+
+	got, ok := presets["with_members"]
+	if !ok {
+		t.Fatalf("expected with_members preset to be generated")
+	}
+	if len(got.Fields) != 1 {
+		t.Fatalf("with_members fields len=%d, want 1", len(got.Fields))
+	}
+	if got.Fields[0].Source != "members" || got.Fields[0].Type != "preset" || got.Fields[0].Preset != "item" {
+		t.Fatalf("unexpected with_members field: %#v", got.Fields[0])
+	}
+	if _, exists := presets["with_organization"]; exists {
+		t.Fatalf("did not expect preset for non-has_many relation")
+	}
+}
+
+func TestUniquePresetName(t *testing.T) {
+	presets := map[string]presetYAML{
+		"item":           {},
+		"with_members":   {},
+		"with_members_2": {},
+	}
+	got := uniquePresetName(presets, "with_members")
+	if got != "with_members_3" {
+		t.Fatalf("uniquePresetName=%q, want %q", got, "with_members_3")
+	}
+}

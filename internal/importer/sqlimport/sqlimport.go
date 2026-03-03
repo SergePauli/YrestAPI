@@ -30,6 +30,18 @@ type ForeignKey struct {
 	RefColumnName string
 }
 
+type incomingForeignKey struct {
+	Table         string
+	ColumnName    string
+	RefColumnName string
+}
+
+type tableMeta struct {
+	Columns []Column
+	FKs     []ForeignKey
+	PKCols  []string
+}
+
 type GenerateOptions struct {
 	Schema     string
 	OnlySimple bool
@@ -69,7 +81,9 @@ func Generate(ctx context.Context, pool *pgxpool.Pool, opts GenerateOptions) ([]
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ModelFile, 0, len(tables))
+
+	metaByTable := make(map[string]tableMeta, len(tables))
+	incomingByTable := make(map[string][]incomingForeignKey, len(tables))
 	for _, table := range tables {
 		cols, err := listColumns(ctx, pool, schema, table)
 		if err != nil {
@@ -82,11 +96,37 @@ func Generate(ctx context.Context, pool *pgxpool.Pool, opts GenerateOptions) ([]
 		if err != nil {
 			return nil, fmt.Errorf("read foreign keys for %s: %w", table, err)
 		}
-
 		pkCols, err := listPrimaryKeyColumns(ctx, pool, schema, table)
 		if err != nil {
 			return nil, fmt.Errorf("read primary key for %s: %w", table, err)
 		}
+
+		metaByTable[table] = tableMeta{
+			Columns: cols,
+			FKs:     fks,
+			PKCols:  pkCols,
+		}
+		for _, fk := range fks {
+			incomingByTable[fk.RefTable] = append(incomingByTable[fk.RefTable], incomingForeignKey{
+				Table:         table,
+				ColumnName:    fk.ColumnName,
+				RefColumnName: fk.RefColumnName,
+			})
+		}
+	}
+
+	out := make([]ModelFile, 0, len(tables))
+	for _, table := range tables {
+		meta, ok := metaByTable[table]
+		if !ok {
+			continue
+		}
+		cols := meta.Columns
+		if len(cols) == 0 {
+			continue
+		}
+		fks := meta.FKs
+		pkCols := meta.PKCols
 
 		idSource, idType, ok := chooseIDColumn(cols, pkCols)
 		if !ok {
@@ -148,6 +188,16 @@ func Generate(ctx context.Context, pool *pgxpool.Pool, opts GenerateOptions) ([]
 				}
 			}
 		}
+		for _, fk := range incomingByTable[table] {
+			relName := uniqueRelationName(relations, relationNameFromTable(fk.Table))
+			relations[relName] = relationYAML{
+				Type:  "has_many",
+				Model: tableToModelName(fk.Table),
+				FK:    fk.ColumnName,
+				PK:    fk.RefColumnName,
+			}
+		}
+		addHasManyRelationPresets(presets, relations)
 
 		model := modelYAML{
 			Table:     table,
@@ -470,4 +520,50 @@ func relationNameFromFK(columnName, refTable string) string {
 		parts[i] = singularize(p)
 	}
 	return strings.Join(parts, "_")
+}
+
+func relationNameFromTable(table string) string {
+	return strings.TrimSpace(strings.ToLower(table))
+}
+
+func uniqueRelationName(relations map[string]relationYAML, base string) string {
+	if _, ok := relations[base]; !ok {
+		return base
+	}
+	for i := 2; ; i++ {
+		name := fmt.Sprintf("%s_%d", base, i)
+		if _, ok := relations[name]; !ok {
+			return name
+		}
+	}
+}
+
+func addHasManyRelationPresets(presets map[string]presetYAML, relations map[string]relationYAML) {
+	for relName, rel := range relations {
+		if rel.Type != "has_many" {
+			continue
+		}
+		presetName := uniquePresetName(presets, "with_"+relName)
+		presets[presetName] = presetYAML{
+			Fields: []fieldYAML{
+				{
+					Source: relName,
+					Type:   "preset",
+					Preset: "item",
+				},
+			},
+		}
+	}
+}
+
+func uniquePresetName(presets map[string]presetYAML, base string) string {
+	if _, ok := presets[base]; !ok {
+		return base
+	}
+	for i := 2; ; i++ {
+		name := fmt.Sprintf("%s_%d", base, i)
+		if _, ok := presets[name]; !ok {
+			return name
+		}
+	}
 }
