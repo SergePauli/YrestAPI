@@ -392,6 +392,9 @@ make import ARGS="-out ./db_imported"
 
 # explicit DSN (if you do not want to use .env)
 make import ARGS="-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable' -out ./db_imported"
+
+# import from Prisma schema.prisma (no DSN required)
+make import ARGS="-prisma-schema ./prisma/schema.prisma -out ./db_imported"
 ```
 
 Supported SQL import modes:
@@ -410,6 +413,15 @@ presets:
 ```
 
 This makes post-import setup simple: keep `full_info` as a base and extend it via `extends` with any generated `has_many` preset, or with all of them when all multiplicity relations are needed in output.
+
+### Import from Prisma schema
+
+- Pass `-prisma-schema <path>` to read models from `schema.prisma` instead of SQL introspection.
+- In this mode `-dsn` is optional and not used.
+- Generated output keeps the same YAML shape as SQL mode:
+  - `belongs_to` relations from `@relation(fields: [...], references: [...])`;
+  - reverse `has_many` relations generated automatically;
+  - helper presets `with_<relation>` for each `has_many`.
 
 ---
 
