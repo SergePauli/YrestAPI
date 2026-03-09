@@ -70,12 +70,15 @@ func main() {
 
 	var files []sqlimport.ModelFile
 	prismaPath := strings.TrimSpace(*prismaSchema)
+	var localeDefaults map[string]map[int]string
 	if prismaPath != "" {
-		prismaFiles, err := prismaimport.GenerateFromFile(prismaPath)
+		prismaResult, err := prismaimport.GenerateResultFromFile(prismaPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "sqlimport: generation failed: %v\n", err)
 			os.Exit(1)
 		}
+		localeDefaults = prismaResult.LocaleDefaults
+		prismaFiles := prismaResult.Files
 		files = make([]sqlimport.ModelFile, 0, len(prismaFiles))
 		for _, f := range prismaFiles {
 			files = append(files, sqlimport.ModelFile{
@@ -135,6 +138,11 @@ func main() {
 		for _, f := range files {
 			fmt.Printf("--- %s ---\n%s\n", f.FileName, string(f.Content))
 		}
+		if prismaPath != "" && len(localeDefaults) > 0 {
+			if raw, err := prismaimport.LocaleDefaultsYAML(localeDefaults); err == nil && len(raw) > 0 {
+				fmt.Printf("--- locale defaults ---\n%s\n", string(raw))
+			}
+		}
 		if prismaPath != "" {
 			fmt.Printf("sqlimport: generated %d model files (dry-run, source=prisma)\n", len(files))
 		} else {
@@ -150,7 +158,18 @@ func main() {
 
 	abs, _ := filepath.Abs(*outDir)
 	if prismaPath != "" {
+		_ = loadDotEnvFromRepoRoot()
+		localeName := strings.TrimSpace(os.Getenv("LOCALE"))
+		if localeName == "" {
+			localeName = "en"
+		}
+		localePath := filepath.Join("cfg", "locales", localeName+".yml")
+		if err := prismaimport.MergeLocaleDefaults(localePath, localeDefaults); err != nil {
+			fmt.Fprintf(os.Stderr, "sqlimport: locale write failed: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Printf("sqlimport: generated %d model files in %s (source=prisma)\n", len(files), abs)
+		fmt.Printf("sqlimport: locale defaults merged into %s\n", localePath)
 	} else {
 		fmt.Printf("sqlimport: generated %d model files in %s (only-simple=%v)\n", len(files), abs, *onlySimple)
 	}

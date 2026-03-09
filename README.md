@@ -422,6 +422,9 @@ This makes post-import setup simple: keep `full_info` as a base and extend it vi
   - `belongs_to` relations from `@relation(fields: [...], references: [...])`;
   - reverse `has_many` relations generated automatically;
   - helper presets `with_<relation>` for each `has_many`.
+- Prisma `enum` fields are generated as `type: int` with `localize: true` in presets (`item`/`full_info`).
+- Enum dictionaries are merged into default locale file `cfg/locales/<LOCALE>.yml` (fallback `cfg/locales/en.yml`) as numeric maps, for example:
+  - `role: {0: USER, 1: ADMIN}`
 
 ---
 

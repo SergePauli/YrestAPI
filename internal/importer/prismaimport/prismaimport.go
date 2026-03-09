@@ -3,6 +3,7 @@ package prismaimport
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -13,6 +14,11 @@ import (
 type ModelFile struct {
 	FileName string
 	Content  []byte
+}
+
+type GenerateResult struct {
+	Files          []ModelFile
+	LocaleDefaults map[string]map[int]string
 }
 
 type modelYAML struct {
@@ -33,10 +39,11 @@ type relationYAML struct {
 }
 
 type fieldYAML struct {
-	Source string `yaml:"source"`
-	Type   string `yaml:"type"`
-	Alias  string `yaml:"alias,omitempty"`
-	Preset string `yaml:"preset,omitempty"`
+	Source   string `yaml:"source"`
+	Type     string `yaml:"type"`
+	Alias    string `yaml:"alias,omitempty"`
+	Preset   string `yaml:"preset,omitempty"`
+	Localize bool   `yaml:"localize,omitempty"`
 }
 
 type prismaModel struct {
@@ -49,12 +56,18 @@ type prismaModel struct {
 	ScalarNames map[string]bool
 }
 
+type prismaEnum struct {
+	Name   string
+	Values []string
+}
+
 type prismaField struct {
 	Name       string
 	Type       string
 	BaseType   string
 	IsList     bool
 	IsOptional bool
+	IsEnum     bool
 	Attrs      string
 }
 
@@ -79,8 +92,14 @@ type incomingFK struct {
 	RelationName string
 }
 
+type scalarColumnsInfo struct {
+	Type     string
+	Localize bool
+}
+
 var (
 	modelStartRe = regexp.MustCompile(`^\s*model\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*$`)
+	enumStartRe  = regexp.MustCompile(`^\s*enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*$`)
 	mapRe        = regexp.MustCompile(`@@map\("([^"]+)"\)`)
 	relationRe   = regexp.MustCompile(`@relation\((.*)\)`)
 	fieldsListRe = regexp.MustCompile(`fields\s*:\s*\[([^\]]+)\]`)
@@ -90,20 +109,40 @@ var (
 )
 
 func GenerateFromFile(path string) ([]ModelFile, error) {
+	res, err := GenerateResultFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return res.Files, nil
+}
+
+func GenerateResultFromFile(path string) (*GenerateResult, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read prisma schema: %w", err)
 	}
-	return GenerateFromSchema(string(raw))
+	return GenerateResultFromSchema(string(raw))
 }
 
 func GenerateFromSchema(schema string) ([]ModelFile, error) {
-	models, err := parseModels(schema)
+	res, err := GenerateResultFromSchema(schema)
+	if err != nil {
+		return nil, err
+	}
+	return res.Files, nil
+}
+
+func GenerateResultFromSchema(schema string) (*GenerateResult, error) {
+	enums, err := parseEnums(schema)
+	if err != nil {
+		return nil, err
+	}
+	models, err := parseModels(schema, enums)
 	if err != nil {
 		return nil, err
 	}
 	if len(models) == 0 {
-		return nil, nil
+		return &GenerateResult{Files: nil, LocaleDefaults: map[string]map[int]string{}}, nil
 	}
 
 	incoming := map[string][]incomingFK{}
@@ -119,8 +158,9 @@ func GenerateFromSchema(schema string) ([]ModelFile, error) {
 	}
 
 	out := make([]ModelFile, 0, len(models))
+	localeDefaults := map[string]map[int]string{}
 	for _, m := range models {
-		cols := scalarColumns(m)
+		cols := scalarColumns(m, enums)
 		idSource, idType, ok := chooseIDColumn(cols, m.PKCols)
 		if !ok {
 			continue
@@ -134,77 +174,162 @@ func GenerateFromSchema(schema string) ([]ModelFile, error) {
 		if nameCol != "" {
 			itemFields = append(itemFields, fieldYAML{
 				Source: nameCol,
-				Type:   cols[nameCol],
+				Type:   cols[nameCol].Type,
 			})
 		}
-		presets := map[string]presetYAML{
-			"item": {Fields: itemFields},
-		}
 
+		presets := map[string]presetYAML{"item": {Fields: itemFields}}
 		relations := map[string]relationYAML{}
+
 		for _, rel := range m.BelongsTo {
-			relations[rel.RelName] = relationYAML{
-				Type:  "belongs_to",
-				Model: rel.ToModel,
-				FK:    rel.FKColumn,
-				PK:    rel.PKColumn,
-			}
+			relations[rel.RelName] = relationYAML{Type: "belongs_to", Model: rel.ToModel, FK: rel.FKColumn, PK: rel.PKColumn}
 		}
 		for _, in := range incoming[m.Name] {
 			relName := uniqueRelationName(relations, chooseHasManyRelationName(m, in))
-			relations[relName] = relationYAML{
-				Type:  "has_many",
-				Model: in.FromModel,
-				FK:    in.FKColumn,
-				PK:    in.PKColumn,
+			relations[relName] = relationYAML{Type: "has_many", Model: in.FromModel, FK: in.FKColumn, PK: in.PKColumn}
+		}
+
+		colNames := make([]string, 0, len(cols))
+		for c := range cols {
+			colNames = append(colNames, c)
+		}
+		sort.Strings(colNames)
+		for _, c := range colNames {
+			if cols[c].Localize {
+				itemFields = append(itemFields, fieldYAML{Source: c, Type: cols[c].Type, Localize: true})
+				if e, ok := enums[fieldBaseType(m, c)]; ok {
+					updateLocaleEnumMap(localeDefaults, c, e)
+				}
 			}
 		}
+		presets["item"] = presetYAML{Fields: itemFields}
 
 		if len(cols) > 2 {
 			fullFields := make([]fieldYAML, 0, len(cols)+len(m.BelongsTo))
-			colNames := make([]string, 0, len(cols))
-			for c := range cols {
-				colNames = append(colNames, c)
-			}
-			sort.Strings(colNames)
 			for _, c := range colNames {
-				fullFields = append(fullFields, fieldYAML{
-					Source: c,
-					Type:   cols[c],
-				})
+				f := fieldYAML{Source: c, Type: cols[c].Type}
+				if cols[c].Localize {
+					f.Localize = true
+				}
+				fullFields = append(fullFields, f)
 			}
 			for _, rel := range m.BelongsTo {
-				fullFields = append(fullFields, fieldYAML{
-					Source: rel.RelName,
-					Type:   "preset",
-					Preset: "item",
-				})
+				fullFields = append(fullFields, fieldYAML{Source: rel.RelName, Type: "preset", Preset: "item"})
 			}
 			presets["full_info"] = presetYAML{Fields: fullFields}
 		}
 
 		addHasManyRelationPresets(presets, relations)
 
-		y := modelYAML{
-			Table:     m.Table,
-			Relations: relations,
-			Presets:   presets,
-		}
+		y := modelYAML{Table: m.Table, Relations: relations, Presets: presets}
 		raw, err := yaml.Marshal(&y)
 		if err != nil {
 			return nil, fmt.Errorf("marshal model %s: %w", m.Name, err)
 		}
-		out = append(out, ModelFile{
-			FileName: m.Name + ".yml",
-			Content:  raw,
-		})
+		out = append(out, ModelFile{FileName: m.Name + ".yml", Content: raw})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].FileName < out[j].FileName })
+	return &GenerateResult{Files: out, LocaleDefaults: localeDefaults}, nil
+}
+
+func MergeLocaleDefaults(path string, defaults map[string]map[int]string) error {
+	if len(defaults) == 0 {
+		return nil
+	}
+	data := map[string]any{}
+	raw, err := os.ReadFile(path)
+	if err == nil {
+		if err := yaml.Unmarshal(raw, &data); err != nil {
+			return fmt.Errorf("unmarshal locale %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read locale %s: %w", path, err)
+	}
+
+	for key, vals := range defaults {
+		var node map[string]any
+		if existing, ok := data[key]; ok {
+			node = normalizeAnyMap(existing)
+		} else {
+			node = map[string]any{}
+		}
+		for idx, label := range vals {
+			k := fmt.Sprintf("%d", idx)
+			if _, exists := node[k]; !exists {
+				node[k] = label
+			}
+		}
+		data[key] = node
+	}
+
+	out, err := yaml.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal locale %s: %w", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir locale dir: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return fmt.Errorf("write locale %s: %w", path, err)
+	}
+	return nil
+}
+
+func LocaleDefaultsYAML(defaults map[string]map[int]string) ([]byte, error) {
+	if len(defaults) == 0 {
+		return []byte{}, nil
+	}
+	m := map[string]map[int]string{}
+	for k, v := range defaults {
+		m[k] = v
+	}
+	return yaml.Marshal(m)
+}
+
+func parseEnums(schema string) (map[string]prismaEnum, error) {
+	lines := strings.Split(schema, "\n")
+	out := map[string]prismaEnum{}
+
+	inEnum := false
+	current := prismaEnum{}
+	for _, raw := range lines {
+		line := stripComment(raw)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if !inEnum {
+			m := enumStartRe.FindStringSubmatch(trimmed)
+			if len(m) == 2 {
+				inEnum = true
+				current = prismaEnum{Name: m[1]}
+			}
+			continue
+		}
+		if trimmed == "}" {
+			out[current.Name] = current
+			inEnum = false
+			current = prismaEnum{}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) == 0 {
+			continue
+		}
+		current.Values = append(current.Values, parts[0])
+	}
+	if inEnum {
+		return nil, fmt.Errorf("invalid prisma schema: unclosed enum block %q", current.Name)
+	}
 	return out, nil
 }
 
-func parseModels(schema string) ([]prismaModel, error) {
+func parseModels(schema string, enums map[string]prismaEnum) ([]prismaModel, error) {
 	lines := strings.Split(schema, "\n")
 	models := make([]prismaModel, 0)
 
@@ -221,11 +346,7 @@ func parseModels(schema string) ([]prismaModel, error) {
 			m := modelStartRe.FindStringSubmatch(trimmed)
 			if len(m) == 2 {
 				inModel = true
-				current = prismaModel{
-					Name:        m[1],
-					Table:       m[1],
-					ScalarNames: map[string]bool{},
-				}
+				current = prismaModel{Name: m[1], Table: m[1], ScalarNames: map[string]bool{}}
 			}
 			continue
 		}
@@ -251,8 +372,12 @@ func parseModels(schema string) ([]prismaModel, error) {
 		if !ok {
 			continue
 		}
+		if _, ok := enums[f.BaseType]; ok {
+			f.IsEnum = true
+		}
 		current.Fields = append(current.Fields, f)
-		if isScalarType(f.BaseType) || f.BaseType == "Unsupported" {
+
+		if isScalarType(f.BaseType) || f.BaseType == "Unsupported" || f.IsEnum {
 			current.ScalarNames[f.Name] = true
 			if strings.Contains(f.Attrs, "@id") {
 				current.PKCols = append(current.PKCols, f.Name)
@@ -263,8 +388,7 @@ func parseModels(schema string) ([]prismaModel, error) {
 			current.ListRels = append(current.ListRels, rel)
 			continue
 		}
-		rel, ok := parseBelongsToRelation(f, current.Table)
-		if ok {
+		if rel, ok := parseBelongsToRelation(f, current.Table); ok {
 			current.BelongsTo = append(current.BelongsTo, rel)
 		}
 	}
@@ -298,14 +422,7 @@ func parseField(line string) (prismaField, bool) {
 		isOptional = true
 		base = strings.TrimSuffix(base, "?")
 	}
-	return prismaField{
-		Name:       name,
-		Type:       typ,
-		BaseType:   base,
-		IsList:     isList,
-		IsOptional: isOptional,
-		Attrs:      attrs,
-	}, true
+	return prismaField{Name: name, Type: typ, BaseType: base, IsList: isList, IsOptional: isOptional, Attrs: attrs}, true
 }
 
 func parseBelongsToRelation(f prismaField, refTable string) (belongsTo, bool) {
@@ -327,13 +444,12 @@ func parseBelongsToRelation(f prismaField, refTable string) (belongsTo, bool) {
 	if len(fields) == 0 || len(refs) == 0 {
 		return belongsTo{}, false
 	}
-	relName := parseRelationName(body)
 	return belongsTo{
 		RelName:      relationNameFromFK(fields[0], refTable),
 		ToModel:      f.BaseType,
 		FKColumn:     fields[0],
 		PKColumn:     refs[0],
-		RelationName: relName,
+		RelationName: parseRelationName(body),
 	}, true
 }
 
@@ -341,45 +457,53 @@ func parseListRelation(f prismaField) (listRelation, bool) {
 	if !f.IsList {
 		return listRelation{}, false
 	}
-	relName := parseRelationNameFromAttrs(f.Attrs)
-	return listRelation{
-		Name:         f.Name,
-		ToModel:      f.BaseType,
-		RelationName: relName,
-	}, true
+	return listRelation{Name: f.Name, ToModel: f.BaseType, RelationName: parseRelationNameFromAttrs(f.Attrs)}, true
 }
 
-func scalarColumns(m prismaModel) map[string]string {
-	out := make(map[string]string)
+func scalarColumns(m prismaModel, enums map[string]prismaEnum) map[string]scalarColumnsInfo {
+	out := make(map[string]scalarColumnsInfo)
 	for _, f := range m.Fields {
 		if !m.ScalarNames[f.Name] {
 			continue
 		}
-		out[f.Name] = mapPrismaTypeToYAML(f.BaseType)
+		if _, ok := enums[f.BaseType]; ok {
+			out[f.Name] = scalarColumnsInfo{Type: "int", Localize: true}
+			continue
+		}
+		out[f.Name] = scalarColumnsInfo{Type: mapPrismaTypeToYAML(f.BaseType)}
 	}
 	return out
 }
 
-func chooseIDColumn(cols map[string]string, pkCols []string) (source, typ string, ok bool) {
+func fieldBaseType(m prismaModel, fieldName string) string {
+	for _, f := range m.Fields {
+		if f.Name == fieldName {
+			return f.BaseType
+		}
+	}
+	return ""
+}
+
+func chooseIDColumn(cols map[string]scalarColumnsInfo, pkCols []string) (source, typ string, ok bool) {
 	if t, exists := cols["id"]; exists {
-		return "id", t, true
+		return "id", t.Type, true
 	}
 	if len(pkCols) == 1 {
 		if t, exists := cols[pkCols[0]]; exists {
-			return pkCols[0], t, true
+			return pkCols[0], t.Type, true
 		}
 	}
 	return "", "", false
 }
 
-func chooseNameLikeColumn(cols map[string]string, idSource string) string {
+func chooseNameLikeColumn(cols map[string]scalarColumnsInfo, idSource string) string {
 	best := ""
 	bestScore := -1
 	for name, typ := range cols {
 		if name == idSource {
 			continue
 		}
-		s := scoreNameColumn(name, typ)
+		s := scoreNameColumn(name, typ.Type)
 		if s > bestScore {
 			bestScore = s
 			best = name
@@ -551,13 +675,7 @@ func addHasManyRelationPresets(presets map[string]presetYAML, relations map[stri
 		}
 		presetName := uniquePresetName(presets, "with_"+relName)
 		presets[presetName] = presetYAML{
-			Fields: []fieldYAML{
-				{
-					Source: relName,
-					Type:   "preset",
-					Preset: "item",
-				},
-			},
+			Fields: []fieldYAML{{Source: relName, Type: "preset", Preset: "item"}},
 		}
 	}
 }
@@ -597,4 +715,31 @@ func parseRelationName(body string) string {
 		return nameM[1]
 	}
 	return ""
+}
+
+func updateLocaleEnumMap(dst map[string]map[int]string, key string, e prismaEnum) {
+	if key == "" || len(e.Values) == 0 {
+		return
+	}
+	if _, ok := dst[key]; !ok {
+		dst[key] = map[int]string{}
+	}
+	for i, v := range e.Values {
+		dst[key][i] = v
+	}
+}
+
+func normalizeAnyMap(v any) map[string]any {
+	out := map[string]any{}
+	switch m := v.(type) {
+	case map[string]any:
+		for k, vv := range m {
+			out[k] = vv
+		}
+	case map[interface{}]interface{}:
+		for k, vv := range m {
+			out[fmt.Sprintf("%v", k)] = vv
+		}
+	}
+	return out
 }

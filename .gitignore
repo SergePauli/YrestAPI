@@ -3,6 +3,8 @@
 /tmp/
 /dist/
 /db/
+/db_imported/
+/prisma/
 /cfg/
 .cache/
 .gocache/
