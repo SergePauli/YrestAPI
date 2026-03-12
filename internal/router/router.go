@@ -22,6 +22,8 @@ func InitRoutes(cfg *config.Config) error {
 
 	http.HandleFunc("/api/index", withCORS(cfg.CORS.AllowOrigin, cfg.CORS.AllowCredentials, withLogging(withAuth(validator, handler.IndexHandler))))
 	http.HandleFunc("/api/count", withCORS(cfg.CORS.AllowOrigin, cfg.CORS.AllowCredentials, withLogging(withAuth(validator, handler.CountHandler))))
+	http.HandleFunc("/healthz", withLogging(healthzHandler))
+	http.HandleFunc("/readyz", withLogging(readyzHandler))
 	// Добавьте другие обработчики по мере необходимости
 	return nil
 }

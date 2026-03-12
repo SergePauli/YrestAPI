@@ -339,6 +339,12 @@ Configuration is read from environment variables (see `internal/config/config.go
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
 
+## ❤️ Health Checks
+
+- `GET /healthz` returns `200 OK` while the HTTP loop is alive. It does not ping DB and does not inspect models, formatters, or request-specific state.
+- `GET /readyz` returns `200 OK` only when the model registry is initialized and PostgreSQL is reachable; otherwise it returns `503 Service Unavailable`.
+- Both endpoints are unauthenticated and intended for container/Kubernetes liveness and readiness probes.
+
 When `AUTH_ENABLED=true`, each API request must include `Authorization: Bearer <token>`. Token validation is fully local: the service checks signature and claims (`iss`, `aud`, `exp`, `nbf`, `iat`) without network calls.
 
 Example `.env` for `HS256`:
