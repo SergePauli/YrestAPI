@@ -2,6 +2,7 @@ package main
 
 import (
 	"YrestAPI/internal"
+	"YrestAPI/internal/importer/graphqlimport"
 	"YrestAPI/internal/importer/prismaimport"
 	"YrestAPI/internal/importer/sqlimport"
 	"context"
@@ -29,6 +30,9 @@ func main() {
 	schema := fs.String("schema", "public", "PostgreSQL schema to introspect")
 	onlySimple := fs.Bool("only-simple", false, "import only tables without outgoing foreign keys")
 	prismaSchema := fs.String("prisma-schema", "", "path to Prisma schema file (e.g. ./prisma/schema.prisma)")
+	graphqlQueries := fs.String("graphql-queries", "", "path to GraphQL query file or directory")
+	modelsDir := fs.String("models-dir", "./db", "directory with existing YAML models for GraphQL preset import")
+	replacePresets := fs.Bool("replace-presets", false, "replace existing presets during GraphQL import")
 	outDir := fs.String("out", "./db", "output directory for generated model YAML files")
 	dryRun := fs.Bool("dry-run", false, "print generated YAML to stdout without writing files")
 
@@ -41,6 +45,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  make import ARGS=\"-dry-run -only-simple\"")
 		fmt.Fprintln(os.Stderr, "  make import ARGS=\"-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable' -out ./db_generated\"")
 		fmt.Fprintln(os.Stderr, "  make import ARGS=\"-prisma-schema ./prisma/schema.prisma -out ./db_generated\"")
+		fmt.Fprintln(os.Stderr, "  make import ARGS=\"-graphql-queries ./gateway/queries -models-dir ./db -dry-run\"")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Options:")
 		fs.PrintDefaults()
@@ -70,8 +75,27 @@ func main() {
 
 	var files []sqlimport.ModelFile
 	prismaPath := strings.TrimSpace(*prismaSchema)
+	graphqlPath := strings.TrimSpace(*graphqlQueries)
 	var localeDefaults map[string]map[int]string
-	if prismaPath != "" {
+	var graphqlWarnings []string
+	if graphqlPath != "" {
+		res, err := graphqlimport.ImportFromPath(graphqlPath, graphqlimport.ImportOptions{
+			ModelsDir:      *modelsDir,
+			ReplacePresets: *replacePresets,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sqlimport: generation failed: %v\n", err)
+			os.Exit(1)
+		}
+		graphqlWarnings = res.Warnings
+		files = make([]sqlimport.ModelFile, 0, len(res.Files))
+		for _, f := range res.Files {
+			files = append(files, sqlimport.ModelFile{
+				FileName: f.FileName,
+				Content:  f.Content,
+			})
+		}
+	} else if prismaPath != "" {
 		prismaResult, err := prismaimport.GenerateResultFromFile(prismaPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "sqlimport: generation failed: %v\n", err)
@@ -93,7 +117,7 @@ func main() {
 			resolvedDSN = strings.TrimSpace(os.Getenv("POSTGRES_DSN"))
 		}
 		if resolvedDSN == "" {
-			fmt.Fprintln(os.Stderr, "sqlimport: DSN is required (pass -dsn, -dns or set POSTGRES_DSN in .env/env), or pass -prisma-schema")
+			fmt.Fprintln(os.Stderr, "sqlimport: DSN is required (pass -dsn, -dns or set POSTGRES_DSN in .env/env), or pass -prisma-schema, or pass -graphql-queries")
 			fmt.Fprintln(os.Stderr)
 			fs.Usage()
 			os.Exit(2)
@@ -126,7 +150,9 @@ func main() {
 	}
 
 	if len(files) == 0 {
-		if prismaPath != "" {
+		if graphqlPath != "" {
+			fmt.Printf("sqlimport: no eligible presets found in graphql queries %q\n", graphqlPath)
+		} else if prismaPath != "" {
 			fmt.Printf("sqlimport: no eligible models found in prisma schema %q\n", prismaPath)
 		} else {
 			fmt.Printf("sqlimport: no eligible tables found in schema %q\n", *schema)
@@ -138,12 +164,19 @@ func main() {
 		for _, f := range files {
 			fmt.Printf("--- %s ---\n%s\n", f.FileName, string(f.Content))
 		}
+		if graphqlPath != "" {
+			for _, warning := range graphqlWarnings {
+				fmt.Printf("warning: %s\n", warning)
+			}
+		}
 		if prismaPath != "" && len(localeDefaults) > 0 {
 			if raw, err := prismaimport.LocaleDefaultsYAML(localeDefaults); err == nil && len(raw) > 0 {
 				fmt.Printf("--- locale defaults ---\n%s\n", string(raw))
 			}
 		}
-		if prismaPath != "" {
+		if graphqlPath != "" {
+			fmt.Printf("sqlimport: updated %d model files (dry-run, source=graphql)\n", len(files))
+		} else if prismaPath != "" {
 			fmt.Printf("sqlimport: generated %d model files (dry-run, source=prisma)\n", len(files))
 		} else {
 			fmt.Printf("sqlimport: generated %d model files (dry-run, only-simple=%v)\n", len(files), *onlySimple)
@@ -151,13 +184,22 @@ func main() {
 		return
 	}
 
-	if err := sqlimport.WriteFiles(*outDir, files); err != nil {
+	writeDir := *outDir
+	if graphqlPath != "" {
+		writeDir = *modelsDir
+	}
+	if err := sqlimport.WriteFiles(writeDir, files); err != nil {
 		fmt.Fprintf(os.Stderr, "sqlimport: write failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	abs, _ := filepath.Abs(*outDir)
-	if prismaPath != "" {
+	abs, _ := filepath.Abs(writeDir)
+	if graphqlPath != "" {
+		fmt.Printf("sqlimport: updated %d model files in %s (source=graphql)\n", len(files), abs)
+		for _, warning := range graphqlWarnings {
+			fmt.Printf("sqlimport: warning: %s\n", warning)
+		}
+	} else if prismaPath != "" {
 		_ = loadDotEnvFromRepoRoot()
 		localeName := strings.TrimSpace(os.Getenv("LOCALE"))
 		if localeName == "" {

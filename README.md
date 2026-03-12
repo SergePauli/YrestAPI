@@ -395,6 +395,9 @@ make import ARGS="-dsn 'postgres://user:pass@localhost:5432/app?sslmode=disable'
 
 # import from Prisma schema.prisma (no DSN required)
 make import ARGS="-prisma-schema ./prisma/schema.prisma -out ./db_imported"
+
+# import presets from GraphQL queries into existing YAML models
+make import ARGS="-graphql-queries ./gateway/queries -models-dir ./db -dry-run"
 ```
 
 Supported SQL import modes:
@@ -425,6 +428,15 @@ This makes post-import setup simple: keep `full_info` as a base and extend it vi
 - Prisma `enum` fields are generated as `type: int` with `localize: true` in presets (`item`/`full_info`).
 - Enum dictionaries are merged into default locale file `cfg/locales/<LOCALE>.yml` (fallback `cfg/locales/en.yml`) as numeric maps, for example:
   - `role: {0: USER, 1: ADMIN}`
+
+### Import presets from GraphQL queries
+
+- Pass `-graphql-queries <path>` to read GraphQL query documents and update presets in existing YAML models.
+- GraphQL import does not create models or relations. It only adds presets to models already present in `-models-dir` (default `./db`).
+- Model lookup uses the convention `root field -> model name`, for example `user -> User`, `project_member -> ProjectMember`.
+- Preset names are generated automatically from `root field + operation name + shape hash`, so the same query shape yields the same preset name.
+- Nested GraphQL selections are imported only when the corresponding relation already exists in YAML; otherwise the importer leaves a warning and skips that nested branch.
+- `source` is taken directly from the GraphQL field name. If the real DB/YAML field name differs, adjust `source` manually after import.
 
 ---
 
