@@ -1,6 +1,8 @@
 # YrestAPI
 
 **YrestAPI** is a declarative REST API engine in Go, built on PostgreSQL with parallel loading of `has_` relations.  
+
+Versioning: this project publicly follows [Semantic Versioning 2.0.0](VERSIONING.md).
 Everything is configured via YAML — no business logic in code.
 
 ---

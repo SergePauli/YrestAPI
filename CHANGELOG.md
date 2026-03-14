@@ -1,6 +1,7 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 
 ## [1.0.0] - 2026-02-24
 

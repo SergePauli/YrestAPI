@@ -29,6 +29,7 @@ make import ARGS="-help"
 - Keep changes focused. Separate refactors from behavioral changes when possible.
 - Add or update tests for new behavior, bug fixes, and importer rules.
 - Update `README.md` when user-facing behavior, configuration, endpoints, or import flows change.
+- Follow [VERSIONING.md](VERSIONING.md) when proposing release scope or version bumps.
 - Prefer ASCII in source and docs unless the file already requires non-ASCII text.
 
 ## Pull Requests
