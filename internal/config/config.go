@@ -27,7 +27,7 @@ type AliasCacheConfig struct {
 }
 
 type CORSConfig struct {
-	AllowOrigin string
+	AllowOrigin      string
 	AllowCredentials bool
 }
 
@@ -62,7 +62,7 @@ func LoadConfig() *Config {
 			MaxBytes: getEnvInt64("ALIAS_CACHE_MAX_BYTES", 0),
 		},
 		CORS: CORSConfig{
-			AllowOrigin: getEnv("CORS_ALLOW_ORIGIN", "*"),
+			AllowOrigin:      getEnv("CORS_ALLOW_ORIGIN", "*"),
 			AllowCredentials: getEnvBool("CORS_ALLOW_CREDENTIALS", false),
 		},
 		Auth: AuthConfig{

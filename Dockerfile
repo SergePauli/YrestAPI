@@ -16,10 +16,10 @@ WORKDIR /app
 
 COPY --chown=65532:65532 --from=build /out/yrestapi /app/yrestapi
 COPY --chown=65532:65532 db /app/db
-COPY --chown=65532:65532 cfg /app/cfg
+COPY --chown=65532:65532 test_db /app/test_db
+COPY --chown=65532:65532 def_cfg /app/cfg
 COPY --chown=65532:65532 log /app/log
 
-ENV MODELS_DIR=/app/db
 EXPOSE 8080
 
 USER 65532:65532

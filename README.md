@@ -32,22 +32,43 @@ Everything is configured via YAML — no business logic in code.
 
 Minimal setup that actually starts the service, including required model and locale config.
 
-Recommended strategy for production: run **YrestAPI in its own container**, next to your main API/BFF and frontend.  
-YrestAPI handles fast read-only data delivery; your core API keeps writes and business logic.  
-This gives a clean pipeline of narrowly specialized containers.
-
 Prerequisites:
 
 - Go `1.24+` (for local run variant)
 - Docker (for container variant)
 - curl
 
-### Option A: local run (Go + local PostgreSQL)
-
 ```bash
 git clone https://github.com/SergePauli/YrestAPI.git
 cd YrestAPI
+```
 
+### Option A: zero-config smoke run with Docker Compose
+
+This is the fastest "try it in 10 seconds" path. It starts PostgreSQL, applies the test schema and seed automatically, and runs YrestAPI against the bundled `test_db` model set.
+
+```bash
+docker compose up --build
+```
+
+Then check:
+
+```bash
+curl -sS http://localhost:8080/healthz
+curl -sS http://localhost:8080/readyz
+curl -sS -X POST http://localhost:8080/api/index \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Project","preset":"item","limit":2}'
+```
+
+Notes:
+
+- `compose.yaml` defaults to `MODELS_DIR=/app/test_db` so the bundled models match the seeded PostgreSQL schema.
+- If you want to test your own model set, override `MODELS_DIR` and other env vars through shell env or a local compose override file.
+
+### Option B: local run (Go + local PostgreSQL)
+
+```bash
 # 1) Start PostgreSQL if needed (example via Docker)
 docker run -d --name yrestapi-pg \
   -e POSTGRES_DB=app \
@@ -115,79 +136,11 @@ curl -sS -X POST http://localhost:8080/api/index \
   -d '{"model":"Area","preset":"item","limit":2}'
 ```
 
-### Option B: production-like run (PostgreSQL + YrestAPI in Docker)
+Production note:
 
-```bash
-git clone https://github.com/SergePauli/YrestAPI.git
-cd YrestAPI
-
-# 1) Create network and start PostgreSQL
-docker network create yrestapi-net
-docker run -d --name yrestapi-pg \
-  --network yrestapi-net \
-  -e POSTGRES_DB=app \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  postgres:16-alpine
-
-# 2) Wait until DB is ready
-until docker exec yrestapi-pg pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 1; done
-
-# 3) Minimal DB schema for demo model
-docker exec -i yrestapi-pg psql -U postgres -d app <<'SQL'
-CREATE TABLE IF NOT EXISTS areas (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL
-);
-INSERT INTO areas (name) VALUES ('Metro Manila'), ('Moscow Oblast') ON CONFLICT DO NOTHING;
-SQL
-
-# 4) Create MODELS_DIR and locale config in project
-mkdir -p db cfg/locales
-cat > db/Area.yml <<'YAML'
-table: areas
-presets:
-  item:
-    fields:
-      - source: id
-        type: int
-      - source: name
-        type: string
-YAML
-cat > cfg/locales/en.yml <<'YAML'
-layoutSettings:
-  date: "2006-01-02"
-  ttime: "15:04:05"
-  datetime: "2006-01-02 15:04:05"
-YAML
-
-# 5) Build and run YrestAPI container
-docker build -t yrestapi:local .
-docker run --rm --name yrestapi \
-  --network yrestapi-net \
-  -p 8080:8080 \
-  -e PORT=8080 \
-  -e POSTGRES_DSN=postgres://postgres:postgres@yrestapi-pg:5432/app?sslmode=disable \
-  -e MODELS_DIR=/app/db \
-  -e LOCALE=en \
-  -e AUTH_ENABLED=false \
-  yrestapi:local
-```
-
-Smoke check (in another terminal):
-
-```bash
-curl -sS -X POST http://localhost:8080/api/index \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"Area","preset":"item","limit":2}'
-```
-
-Optional cleanup:
-
-```bash
-docker rm -f yrestapi yrestapi-pg 2>/dev/null || true
-docker network rm yrestapi-net 2>/dev/null || true
-```
+Run **YrestAPI** in its own container, next to your main API/BFF and frontend.  
+YrestAPI handles fast read-only data delivery; your core API keeps writes and business logic.  
+This keeps the pipeline narrow and operational responsibilities clear.
 
 ---
 
@@ -340,6 +293,14 @@ Configuration is read from environment variables (see `internal/config/config.go
 | `ALIAS_CACHE_MAX_BYTES`    | `0`                                                               | Max bytes for in-memory alias cache (0 = unlimited)  |
 
 You can provide a `.env` file in the project root; variables from it override defaults. `MODELS_DIR` controls where YAML models are loaded from; adjust it when running in other environments or with mounted configs.
+
+Default resolution rule:
+
+- if `MODELS_DIR` is explicitly set, that path is used as-is
+- otherwise the service first tries `./db`
+- if `./db` is missing or contains no model `.yml` files, it falls back to `./test_db` for quick-start and smoke-test scenarios
+
+For Docker DX, the repository also includes `db/`, `test_db/`, `def_cfg/`, and `log/`. The default Docker image copies these directories into `/app/db`, `/app/test_db`, `/app/cfg`, and `/app/log`, so `docker build` does not require creating runtime assets first.
 
 ## ❤️ Health Checks
 

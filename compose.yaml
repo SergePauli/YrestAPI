@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: yrestapi-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/0002_test_schema.up.sql:/docker-entrypoint-initdb.d/0002_test_schema.sql:ro
+      - ./migrations/0003_test_seed.up.sql:/docker-entrypoint-initdb.d/0003_test_seed.sql:ro
+
+  app:
+    build:
+      context: .
+    container_name: yrestapi-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: ${PORT:-8080}
+      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-app}?sslmode=disable}
+      MODELS_DIR: ${MODELS_DIR:-/app/test_db}
+      LOCALE: ${LOCALE:-en}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+    ports:
+      - "${PORT:-8080}:8080"
+
+volumes:
+  postgres_data:

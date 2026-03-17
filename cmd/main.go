@@ -9,6 +9,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"path/filepath"
 
 	"fmt"
 	"os"
@@ -35,6 +36,7 @@ func main() {
 		startupFatal("log_init_failed", err)
 	}
 	logger.SetDebug(*debugFlag)
+	cfg.ModelsDir = resolveModelsDir(cfg.ModelsDir)
 
 	// PostgreSQL
 
@@ -72,4 +74,35 @@ func main() {
 		logger.Error("server_error", map[string]any{"error": err.Error()})
 		startupFatal("server_error", err)
 	}
+}
+
+func resolveModelsDir(configured string) string {
+	configured = filepath.Clean(configured)
+	if _, explicit := os.LookupEnv("MODELS_DIR"); explicit {
+		return configured
+	}
+	if hasModelYAML(configured) {
+		return configured
+	}
+	fallback := filepath.Clean("./test_db")
+	if hasModelYAML(fallback) {
+		logger.Warn("models_dir_fallback", map[string]any{
+			"configured": configured,
+			"fallback":   fallback,
+		})
+		return fallback
+	}
+	return configured
+}
+
+func hasModelYAML(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "*.yml"))
+	if err != nil {
+		return false
+	}
+	return len(matches) > 0
 }
