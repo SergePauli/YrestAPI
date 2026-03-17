@@ -51,6 +51,14 @@ This is the fastest "try it in 10 seconds" path. It starts PostgreSQL, applies t
 docker compose up --build
 ```
 
+If `8080` is already busy on your machine, change only the external HTTP port:
+
+```bash
+HOST_PORT=8081 docker compose up --build
+```
+
+Then use `http://localhost:8081/...` in the checks below.
+
 Then check:
 
 ```bash
@@ -58,7 +66,13 @@ curl -sS http://localhost:8080/healthz
 curl -sS http://localhost:8080/readyz
 curl -sS -X POST http://localhost:8080/api/index \
   -H 'Content-Type: application/json' \
-  -d '{"model":"Project","preset":"item","limit":2}'
+  -d '{"model":"Project","preset":"with_members","limit":2}'
+```
+
+Expected result:
+
+```json
+[{"id":900,"label":"Data Lake — {persons[0].full_name}","name":"Data Lake","organization_id":1,"persons":[{"full_name":"Chen Alex","id":3,"last_name":"Chen"},{"full_name":"Ivankov Serge","id":1,"last_name":"Ivankov"}]},{"id":901,"label":"UI Overhaul — {persons[0].full_name}","name":"UI Overhaul","organization_id":1,"persons":[{"full_name":"Chen Alex","id":3,"last_name":"Chen"}]}]
 ```
 
 Notes:
