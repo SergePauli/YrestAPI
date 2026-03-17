@@ -300,7 +300,9 @@ Default resolution rule:
 - otherwise the service first tries `./db`
 - if `./db` is missing or contains no model `.yml` files, it falls back to `./test_db` for quick-start and smoke-test scenarios
 
-For Docker DX, the repository also includes `db/`, `test_db/`, `def_cfg/`, and `log/`. The default Docker image copies these directories into `/app/db`, `/app/test_db`, `/app/cfg`, and `/app/log`, so `docker build` does not require creating runtime assets first.
+The repository keeps `db/` as an intentionally empty primary model directory placeholder. Add your own models there when needed.
+
+For Docker DX, the repository includes `db/`, `test_db/`, `def_cfg/`, and `log/`. The Docker image copies both `/app/db` and `/app/test_db`: your local `db/` goes into the image as the primary model directory, and `/app/test_db` remains available as the runtime fallback for smoke-start scenarios.
 
 ## ❤️ Health Checks
 

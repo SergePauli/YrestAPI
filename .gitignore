@@ -2,7 +2,8 @@
 /bin/
 /tmp/
 /dist/
-/db/
+/db/*
+!/db/.gitkeep
 /db_imported/
 /prisma/
 /cfg/
