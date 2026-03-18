@@ -4,7 +4,9 @@ import (
 	"YrestAPI/internal"
 	"YrestAPI/internal/config"
 	"YrestAPI/internal/db"
+	"YrestAPI/internal/logger"
 	"YrestAPI/internal/model"
+	"YrestAPI/internal/router"
 	"context"
 	"fmt"
 	"log"
@@ -31,6 +33,8 @@ var (
 	managedHTTPServer bool
 )
 
+var errSkipIntegration = fmt.Errorf("skip integration tests")
+
 func TestMain(m *testing.M) {
 	root, err := internal.FindRepoRoot()
 	if err != nil {
@@ -38,34 +42,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	if !dockerComposeAvailable(root) {
-		println("skip integration tests: docker compose is not available")
-		os.Exit(0)
-	}
-
-	teardownCompose, err := setupComposeStack(root)
+	teardown, err := setupIntegrationBootstrap(root)
 	if err != nil {
-		println("setup compose stack failed:", err.Error())
+		if err == errSkipIntegration {
+			println("skip integration tests: docker compose is not available")
+			os.Exit(0)
+		}
+		println("integration bootstrap failed:", err.Error())
 		os.Exit(1)
 	}
-
-	cfg := config.LoadConfig()
-	cfg.PostgresDSN = fmt.Sprintf("postgres://postgres:postgres@localhost:%s/app?sslmode=disable", testPostgresPort)
-	cfg.ModelsDir = filepath.Join(root, "test_db")
-
-	if err := db.InitPostgres(cfg.PostgresDSN); err != nil {
-		println("InitPostgres failed:", err.Error())
-		os.Exit(1)
-	}
-
-	if err := model.InitRegistry(cfg.ModelsDir); err != nil {
-		println("InitRegistry failed:", err.Error())
-		os.Exit(1)
-	}
-
-	testBaseURL = fmt.Sprintf("http://localhost:%s", testHTTPPort)
-	httpSrv = &http.Server{}
-	managedHTTPServer = false
 
 	var ok bool
 	if err := db.Pool.QueryRow(context.Background(),
@@ -84,11 +69,96 @@ func TestMain(m *testing.M) {
 		cancel()
 	}
 
-	if err := teardownCompose(); err != nil {
-		log.Printf("compose teardown failed: %v", err)
+	if teardown != nil {
+		if err := teardown(); err != nil {
+			log.Printf("integration teardown failed: %v", err)
+		}
 	}
 
 	os.Exit(code)
+}
+
+func setupIntegrationBootstrap(root string) (func() error, error) {
+	cfg := config.LoadConfig()
+	cfg.ModelsDir = filepath.Join(root, "test_db")
+	testBaseURL = fmt.Sprintf("http://localhost:%s", testHTTPPort)
+	httpSrv = &http.Server{}
+	managedHTTPServer = false
+
+	if shouldUseLocalPostgresBootstrap() {
+		teardownDB, err := SetupAndTeardownTestDB(cfg.PostgresDSN, db.InitPostgres)
+		if err != nil {
+			return nil, err
+		}
+		if err := initializeRegistryAndServer(cfg); err != nil {
+			_ = teardownDB()
+			return nil, err
+		}
+		return teardownDB, nil
+	}
+
+	if !dockerComposeAvailable(root) {
+		return nil, errSkipIntegration
+	}
+
+	teardownCompose, err := setupComposeStack(root)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.PostgresDSN = fmt.Sprintf("postgres://postgres:postgres@localhost:%s/app?sslmode=disable", testPostgresPort)
+	if err := db.InitPostgres(cfg.PostgresDSN); err != nil {
+		_ = teardownCompose()
+		return nil, err
+	}
+	if err := model.InitRegistry(cfg.ModelsDir); err != nil {
+		_ = teardownCompose()
+		return nil, err
+	}
+
+	return teardownCompose, nil
+}
+
+func shouldUseLocalPostgresBootstrap() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("YRESTAPI_ITEST_USE_LOCAL_POSTGRES") == "true"
+}
+
+func initializeRegistryAndServer(cfg *config.Config) error {
+	if err := logger.Init("."); err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+
+	http.DefaultServeMux = http.NewServeMux()
+	if err := model.InitRegistry(cfg.ModelsDir); err != nil {
+		return fmt.Errorf("init registry: %w", err)
+	}
+	if err := model.LoadLocales(cfg.Locale); err != nil {
+		model.HasLocales = false
+		log.Printf("integration locales disabled: %v", err)
+	} else {
+		model.HasLocales = true
+	}
+	if err := router.InitRoutes(cfg); err != nil {
+		return fmt.Errorf("init routes: %w", err)
+	}
+
+	httpSrv = &http.Server{Addr: ":" + testHTTPPort}
+	managedHTTPServer = true
+
+	go func() {
+		err := httpSrv.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("integration HTTP server failed: %v", err)
+		}
+	}()
+
+	if err := waitForHTTPStatus(testBaseURL+"/healthz", http.StatusOK, 15*time.Second); err != nil {
+		return fmt.Errorf("healthz not ready: %w", err)
+	}
+	if err := waitForHTTPStatus(testBaseURL+"/readyz", http.StatusOK, 15*time.Second); err != nil {
+		return fmt.Errorf("readyz not ready: %w", err)
+	}
+	return nil
 }
 
 func dockerComposeAvailable(root string) bool {

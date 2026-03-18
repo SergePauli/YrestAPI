@@ -9,7 +9,7 @@ import (
 // Мини-проверки самых сложных моделей/связей.
 // Если у тебя другой способ доступа к реестру (например, GetModel),
 // просто поменяй accessor внизу.
-func Test_Registry_Sanity_OnComplexRelations(t *testing.T) {	
+func Test_Registry_Sanity_OnComplexRelations(t *testing.T) {
 	// Registry уже загружен в TestMain — здесь лишь сверяем несколько связей
 	person := model.Registry["Person"]
 	if person == nil {

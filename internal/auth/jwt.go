@@ -55,7 +55,7 @@ func NewJWTValidator(cfg config.JWTConfig) (*JWTValidator, error) {
 	case "HS256":
 		if cfg.HMACSecret == "" {
 			return nil, errors.New("jwt hmac secret is required for HS256")
-		}		
+		}
 		v.hmacKey = []byte(cfg.HMACSecret)
 	case "RS256":
 		pubKey, err := loadPublicKey(cfg)

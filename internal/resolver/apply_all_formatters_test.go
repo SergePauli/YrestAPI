@@ -187,13 +187,13 @@ func TestApplyAllFormatters_Head_UsesName_And_Through(t *testing.T) {
 
 	items := []map[string]any{
 		{
-			"id": 1,
+			"id":     1,
 			"naming": map[string]any{"surname": "Фролов", "name": "Илья", "patrname": "Сергеевич"},
 			"email":  map[string]any{"contact": map[string]any{"value": "ilya.f@example.com"}},
 			"phone":  nil,
 		},
 		{
-			"id": 2,
+			"id":     2,
 			"naming": map[string]any{"surname": "Маркова", "name": "Анна", "patrname": ""},
 			"email":  nil,
 			"phone":  map[string]any{"contact": map[string]any{"value": "8 (914) 270-81-23"}},
@@ -214,64 +214,62 @@ func TestApplyAllFormatters_Head_UsesName_And_Through(t *testing.T) {
 // ---------- ТЕСТ 3: preset formatter форматирует контейнер (belongs_to без through) ----------
 
 func TestApplyAllFormatters_PresetFormatter_WritesToAliasName(t *testing.T) {
-    // Модель Organization с пресетом "item"
-    org := &model.Model{
-        Table:     "organizations",				
-        Relations: map[string]*model.ModelRelation{},
-        Presets:   map[string]*model.DataPreset{},
-    }
-    itemPreset := &model.DataPreset{
-        Name: "item",
-        Fields: []model.Field{
-            {Type: "int",    Source: "id"},
-            {Type: "string", Source: "full_name"},
-            {Type: "string", Source: "inn"},
-        },
-    }
-    org.Presets["item"] = itemPreset
+	// Модель Organization с пресетом "item"
+	org := &model.Model{
+		Table:     "organizations",
+		Relations: map[string]*model.ModelRelation{},
+		Presets:   map[string]*model.DataPreset{},
+	}
+	itemPreset := &model.DataPreset{
+		Name: "item",
+		Fields: []model.Field{
+			{Type: "int", Source: "id"},
+			{Type: "string", Source: "full_name"},
+			{Type: "string", Source: "inn"},
+		},
+	}
+	org.Presets["item"] = itemPreset
 
-    // Contragent -> belongs_to Organization
-    contr := &model.Model{Table: "contragents", Relations: map[string]*model.ModelRelation{}}
-    {
-        r := &model.ModelRelation{Type: "belongs_to", Model: "Organization"}
-        r.SetModelRef(org)
-        contr.Relations["organization"] = r
-    }
+	// Contragent -> belongs_to Organization
+	contr := &model.Model{Table: "contragents", Relations: map[string]*model.ModelRelation{}}
+	{
+		r := &model.ModelRelation{Type: "belongs_to", Model: "Organization"}
+		r.SetModelRef(org)
+		contr.Relations["organization"] = r
+	}
 
-    // Поле 1: preset organization (контейнер), рекурсивно "item"
-    fOrgPreset := model.Field{Type: "preset", Source: "organization", Alias: "organization", NestedPreset: "item"}
-    fOrgPreset.SetPresetRef(itemPreset)
+	// Поле 1: preset organization (контейнер), рекурсивно "item"
+	fOrgPreset := model.Field{Type: "preset", Source: "organization", Alias: "organization", NestedPreset: "item"}
+	fOrgPreset.SetPresetRef(itemPreset)
 
-    // Поле 2: preset organization, но alias = "name", форматтер пишет строку в name
-    fOrgName := model.Field{Type: "preset", Source: "organization", Alias: "name", Formatter: "{full_name}", NestedPreset: "item"}
-    fOrgName.SetPresetRef(itemPreset)
+	// Поле 2: preset organization, но alias = "name", форматтер пишет строку в name
+	fOrgName := model.Field{Type: "preset", Source: "organization", Alias: "name", Formatter: "{full_name}", NestedPreset: "item"}
+	fOrgName.SetPresetRef(itemPreset)
 
-    p := &model.DataPreset{
-        Name:   "edit",
-        Fields: []model.Field{fOrgPreset, fOrgName},
-    }
-		
+	p := &model.DataPreset{
+		Name:   "edit",
+		Fields: []model.Field{fOrgPreset, fOrgName},
+	}
 
-    items := []map[string]any{
-        {"id": 7, "organization": map[string]any{"id": 5, "full_name": "ООО «Сириус»", "inn": "1234567890"}},
-    }
+	items := []map[string]any{
+		{"id": 7, "organization": map[string]any{"id": 5, "full_name": "ООО «Сириус»", "inn": "1234567890"}},
+	}
 
-    if err := applyAllFormatters(contr, p, items, ""); err != nil {
-        t.Fatalf("applyAllFormatters error: %v", err)
-    }
+	if err := applyAllFormatters(contr, p, items, ""); err != nil {
+		t.Fatalf("applyAllFormatters error: %v", err)
+	}
 
-    // Проверяем: значение попало в alias "name"
-    gotName, _ := items[0]["name"].(string)
-    if strings.TrimSpace(gotName) != "ООО «Сириус»" {
-        t.Fatalf("preset->formatter should write into alias 'name', got item: %#v", items[0])
-    }
+	// Проверяем: значение попало в alias "name"
+	gotName, _ := items[0]["name"].(string)
+	if strings.TrimSpace(gotName) != "ООО «Сириус»" {
+		t.Fatalf("preset->formatter should write into alias 'name', got item: %#v", items[0])
+	}
 
-    // И контейнер 'organization' остаётся map, не строка
-    if _, ok := items[0]["organization"].(map[string]any); !ok {
-        t.Fatalf("'organization' container must remain an object, got %#v", items[0]["organization"])
-    }
+	// И контейнер 'organization' остаётся map, не строка
+	if _, ok := items[0]["organization"].(map[string]any); !ok {
+		t.Fatalf("'organization' container must remain an object, got %#v", items[0]["organization"])
+	}
 }
-
 
 // ---------- ТЕСТ 4: вложенный preset с локальным formatter внутри ветки ----------
 
@@ -286,8 +284,8 @@ func TestApplyAllFormatters_NestedPreset_LocalFormatter(t *testing.T) {
 			{Type: "formatter", Alias: "head", Source: "{surname} {name}[0].{patrname}[0..1]."},
 		},
 	}
-	naming := &model.Model{Table: "namings", Relations: map[string]*model.ModelRelation{}, 
-		Presets: map[string]*model.DataPreset{"edit": namingEdit},}
+	naming := &model.Model{Table: "namings", Relations: map[string]*model.ModelRelation{},
+		Presets: map[string]*model.DataPreset{"edit": namingEdit}}
 	person := &model.Model{Table: "people", Relations: map[string]*model.ModelRelation{}}
 	{
 		r := &model.ModelRelation{Type: "belongs_to"}

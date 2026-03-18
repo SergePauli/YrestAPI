@@ -19,11 +19,11 @@ func newModel(name string) *Model {
 
 func link(m *Model, relName, relType string, target *Model, reentrant bool, maxDepth int) {
 	m.Relations[relName] = &ModelRelation{
-		Type:       relType,
-		Model:      target.Name,
-		_ModelRef:  target,
-		Reentrant:  reentrant,
-		MaxDepth:   maxDepth,
+		Type:      relType,
+		Model:     target.Name,
+		_ModelRef: target,
+		Reentrant: reentrant,
+		MaxDepth:  maxDepth,
 	}
 }
 
@@ -71,8 +71,8 @@ func TestBuildAliasMap_ComplexRecursiveFilterAndNestedSort_ExactMatch(t *testing
 	// t0: contragent
 	// t1: contragent.contracts
 	preset := presetWithAliases(map[string]string{
-		"contragent":             "t0",
-		"contragent.contracts":   "t1",
+		"contragent":           "t0",
+		"contragent.contracts": "t1",
 	})
 
 	// Фильтр по рекурсивному пути: Contract → Contragent → Contracts → Contragent → Contracts
@@ -97,11 +97,11 @@ func TestBuildAliasMap_ComplexRecursiveFilterAndNestedSort_ExactMatch(t *testing
 	// - t3: contragent.contracts.contragent (новый префикс из рекурсивного фильтра)
 	// - t4: contragent.contracts.contragent.contracts (конечный путь рекурсивного фильтра)
 	wantPathToAlias := map[string]string{
-		"contragent":                                     "t0",
-		"contragent.contracts":                           "t1",
-		"contragent.address":                             "t2",
-		"contragent.contracts.contragent":                "t3",
-		"contragent.contracts.contragent.contracts":      "t4",
+		"contragent":                                "t0",
+		"contragent.contracts":                      "t1",
+		"contragent.address":                        "t2",
+		"contragent.contracts.contragent":           "t3",
+		"contragent.contracts.contragent.contracts": "t4",
 	}
 
 	// Проверка точного совпадения PathToAlias (ровно эти и только эти пути)
@@ -198,8 +198,8 @@ func TestBuildPresetAliasMapsForModel_PersonCard_IncludesPersonNameNaming(t *tes
 
 	// Ожидаем ровно эти пути: базовый и вложенный belongs_to
 	want := map[string]string{
-		"person_name":          "t0", // порядок по глубине: сначала t0
-		"person_name.naming":   "t1",
+		"person_name":        "t0", // порядок по глубине: сначала t0
+		"person_name.naming": "t1",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("PathToAlias mismatch\n got: %#v\nwant: %#v", got, want)

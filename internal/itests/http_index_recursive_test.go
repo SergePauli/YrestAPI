@@ -119,7 +119,7 @@ func fetchChainNumbers(t *testing.T, preset string, rootID int, relKey string) [
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d. body=%s", resp.StatusCode, string(respBody))
 	}
-  
+
 	var raw any
 	if err := json.Unmarshal(respBody, &raw); err != nil {
 		t.Fatalf("invalid JSON response: %v; body=%s", err, string(respBody))

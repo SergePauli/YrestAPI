@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 )
+
 func FindRepoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {

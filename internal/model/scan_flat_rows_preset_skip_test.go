@@ -19,10 +19,11 @@ type stubRows struct {
 
 var _ pgx.Rows = (*stubRows)(nil)
 
-func (r *stubRows) Close()                                  {}
-func (r *stubRows) Err() error                              { return r.err }
-func (r *stubRows) CommandTag() pgconn.CommandTag           { return pgconn.CommandTag{} }
+func (r *stubRows) Close()                                       {}
+func (r *stubRows) Err() error                                   { return r.err }
+func (r *stubRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *stubRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+
 // ВАЖНО для pgx/v5: добавить Conn() *pgx.Conn
 func (r *stubRows) Conn() *pgx.Conn { return nil }
 func (r *stubRows) Next() bool {
@@ -88,19 +89,18 @@ func TestScanFlatRows_SkipsPresetPlaceholders(t *testing.T) {
 		Relations: map[string]*ModelRelation{
 			"address": {Type: "belongs_to", FK: "address_id", PK: "id", _ModelRef: address},
 		},
-		
 	}
-	aliasMap:= &AliasMap{
-			// важны оба направления: путь → алиас и обратно
-			PathToAlias: map[string]string{
-				"address":      "t0",
-				"address.area": "t1",
-			},
-			AliasToPath: map[string]string{
-				"t0": "address",
-				"t1": "address.area",
-			},
-		};
+	aliasMap := &AliasMap{
+		// важны оба направления: путь → алиас и обратно
+		PathToAlias: map[string]string{
+			"address":      "t0",
+			"address.area": "t1",
+		},
+		AliasToPath: map[string]string{
+			"t0": "address",
+			"t1": "address.area",
+		},
+	}
 	// Пресет корня: один preset "address" (виртуальная колонка) + его вложенные листовые поля
 	p := &DataPreset{
 		Name: "card",
@@ -113,30 +113,30 @@ func TestScanFlatRows_SkipsPresetPlaceholders(t *testing.T) {
 	// здесь только реальные значения (для листовых полей),
 	// без "preset"-плейсхолдеров — ScanFlatRows обязан правильно сопоставить индексы.
 	vals := []any{
-		int64(105),                 // address.id
-		"ул. Кирова, 81",           // address.name
-		int64(24),                  // address.area.id
-		"Красноярский край",        // address.area.name
+		int64(105),          // address.id
+		"ул. Кирова, 81",    // address.name
+		int64(24),           // address.area.id
+		"Красноярский край", // address.area.name
 	}
 
 	rows := &stubRows{data: [][]any{vals}}
 
 	gotFlat, err := root.ScanFlatRows(rows, p, aliasMap)
-	
+
 	if err != nil {
 		t.Fatalf("ScanFlatRows error: %v", err)
 	}
 	if len(gotFlat) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(gotFlat))
 	}
-	row := gotFlat[0]	
+	row := gotFlat[0]
 	// Ожидаемые ключи (их строит ScanFlatRows по AliasMap)
 	want := map[string]any{
-		"address": map[string]any{  
-			"area": map[string]any{"id" : int64(24), "name" : "Красноярский край",},
+		"address": map[string]any{
+			"area": map[string]any{"id": int64(24), "name": "Красноярский край"},
 			"id":   int64(105),
 			"name": "ул. Кирова, 81",
-		},	
+		},
 	}
 
 	// Проверим, что:

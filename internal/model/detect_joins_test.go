@@ -9,15 +9,15 @@ func TestDetectJoins_BelongsToChain(t *testing.T) {
 	// address.area цепочка
 	area := &Model{Table: "areas", Relations: map[string]*ModelRelation{}}
 	aliasMap := &AliasMap{
-			PathToAlias: map[string]string{
-				"address":       "t0",
-				"address.area":  "t1",
-			},
-			AliasToPath: map[string]string{
-				"t0": "address",
-				"t1": "address.area",
-			},
-		}
+		PathToAlias: map[string]string{
+			"address":      "t0",
+			"address.area": "t1",
+		},
+		AliasToPath: map[string]string{
+			"t0": "address",
+			"t1": "address.area",
+		},
+	}
 	address := &Model{
 		Table: "addresses",
 		Relations: map[string]*ModelRelation{
@@ -30,13 +30,12 @@ func TestDetectJoins_BelongsToChain(t *testing.T) {
 		Relations: map[string]*ModelRelation{
 			"address": {Type: "belongs_to", FK: "address_id", PK: "id", _ModelRef: address},
 		},
-		
 	}
 
 	// presetFields из ScanPresetFields (фактически то, что ты уже логируешь)
 	presetFields := []string{"address", "address.area"}
 
-	joins, err := root.DetectJoins(aliasMap,nil, nil, presetFields)
+	joins, err := root.DetectJoins(aliasMap, nil, nil, presetFields)
 	if err != nil {
 		t.Fatalf("DetectJoins error: %v", err)
 	}

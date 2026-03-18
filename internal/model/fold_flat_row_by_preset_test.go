@@ -7,16 +7,16 @@ import (
 
 func TestFoldFlatRowByPreset_Simple(t *testing.T) {
 	in := map[string]any{
-		"id":                 1024,
-		"name":               "Русский Продукт",
-		"address.id":         377,
-		"address.value":      "660013, г. Красноярск...",
-		"address.area.id":    660000,
-		"address.area.name":  "КРАСНОЯРСК",
-		"requisites.id":      1128,
-		"requisites.name":    "Русский Продукт",
-		"requisites.org.id":  1128,
-		"requisites.org.name":"Русский Продукт",
+		"id":                  1024,
+		"name":                "Русский Продукт",
+		"address.id":          377,
+		"address.value":       "660013, г. Красноярск...",
+		"address.area.id":     660000,
+		"address.area.name":   "КРАСНОЯРСК",
+		"requisites.id":       1128,
+		"requisites.name":     "Русский Продукт",
+		"requisites.org.id":   1128,
+		"requisites.org.name": "Русский Продукт",
 	}
 
 	got := FoldFlatRowByPreset(in)
@@ -50,11 +50,11 @@ func TestFoldFlatRowByPreset_Simple(t *testing.T) {
 func TestFoldFlatRowByPreset_EdgeCases(t *testing.T) {
 	// пустые и "обрезанные" ключи не ломают свёртку
 	in := map[string]any{
-		"a.":        1,              // хвостовая точка → трактуем как leaf "a"
-		"b":         2,              // уже leaf
-		"c.d":       3,              // двойная точка схлопнется в два уровня
-		"e.f.g.h":   4,
-		"e.f.g.i":   5,
+		"a.":      1, // хвостовая точка → трактуем как leaf "a"
+		"b":       2, // уже leaf
+		"c.d":     3, // двойная точка схлопнется в два уровня
+		"e.f.g.h": 4,
+		"e.f.g.i": 5,
 	}
 
 	got := FoldFlatRowByPreset(in)
