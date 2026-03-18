@@ -43,7 +43,6 @@ func InitRegistry(dir string) error {
 	log.Printf("📦 Registry initialized: models=%d, presets=%d, computable=%d, heap now≈%s, delta≈%s, limit≈%s (source: %s)",
 		len(Registry), totalPresets, totalComputable, formatBytes(after), formatBytes(uint64(max64(regUsage, 0))), formatBytes(limitBytes), limitSrc)
 
-
 	return nil
 }
 

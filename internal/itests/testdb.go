@@ -154,7 +154,7 @@ func SetupAndTeardownTestDB(baseDSN string, initFunc func(string) error) (teardo
 	teardown = func() error {
 		return DropTestDatabase(adminDSN, testDB)
 	}
-	log.Printf("teardown function ready to drop test DB %q", testDB)	
+	log.Printf("teardown function ready to drop test DB %q", testDB)
 	return teardown, nil
 }
 

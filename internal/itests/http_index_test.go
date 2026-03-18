@@ -325,7 +325,10 @@ func Test_Index_Person_Item_Formatter_And_InternalHidden(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	type row struct{ ID int; First, Last string }
+	type row struct {
+		ID          int
+		First, Last string
+	}
 	var r row
 	// ВАЖНО: используй правильную таблицу (people или persons)
 	if err := db.Pool.QueryRow(ctx,
@@ -409,6 +412,7 @@ func Test_Index_Person_Item_Formatter_And_InternalHidden(t *testing.T) {
 
 	t.Logf("✅ formatter ok (full_name=%q), internal field hidden, item=%#v", gotFull, it)
 }
+
 // Тест вложенного пресета и форматтера поля
 func Test_Index_Employee_WithPersonLabel_Formatter(t *testing.T) {
 	if testBaseURL == "" || httpSrv == nil {
@@ -473,7 +477,7 @@ func Test_Index_Employee_WithPersonLabel_Formatter(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d; body=%s", len(items), string(b))
 	}
-	it := items[0]	
+	it := items[0]
 	// Вложенный пресет person присутствует
 	personAny, ok := it["person"]
 	if !ok {
@@ -515,7 +519,7 @@ func Test_Index_Employee_WithPersonLabel_Formatter(t *testing.T) {
 			t.Fatalf("id mismatch: got %d, want %d", v, empID)
 		}
 	default:
-		 t.Fatalf("unexpected type for id: %T", v)
+		t.Fatalf("unexpected type for id: %T", v)
 	}
 
 	t.Logf("✅ nested preset present; formatter OK (person_label=%q); ignoring internal leakage for now", label)
@@ -566,9 +570,13 @@ func Test_Index_Person_WithContacts_Head(t *testing.T) {
 		}
 		full := fmt.Sprintf("%s %s", r.Last, r.First)
 		email := ""
-		if r.Email != nil { email = *r.Email }
+		if r.Email != nil {
+			email = *r.Email
+		}
 		phone := ""
-		if r.Phone != nil { phone = *r.Phone }
+		if r.Phone != nil {
+			phone = *r.Phone
+		}
 		expected = append(expected, strings.TrimRight(fmt.Sprintf("%s %s %s", full, email, phone), " "))
 	}
 	if err := rows.Err(); err != nil {
@@ -589,11 +597,15 @@ func Test_Index_Person_WithContacts_Head(t *testing.T) {
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequest(http.MethodPost, testBaseURL+"/api/index", bytes.NewReader(body))
-	if err != nil { t.Fatalf("build request failed: %v", err) }
+	if err != nil {
+		t.Fatalf("build request failed: %v", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil { t.Fatalf("POST /api/index failed: %v", err) }
+	if err != nil {
+		t.Fatalf("POST /api/index failed: %v", err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -607,8 +619,12 @@ func Test_Index_Person_WithContacts_Head(t *testing.T) {
 		t.Fatalf("invalid JSON: %v; body=%s", err, string(b))
 	}
 	items, err := extractItemsArray(raw)
-	if err != nil { t.Fatalf("extract items failed: %v; body=%s", err, string(b)) }
-	if len(items) != 2 { t.Fatalf("expected 2 items, got %d; body=%s", len(items), string(b)) }
+	if err != nil {
+		t.Fatalf("extract items failed: %v; body=%s", err, string(b))
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d; body=%s", len(items), string(b))
+	}
 
 	for i, it := range items {
 		h, _ := it["head"].(string)

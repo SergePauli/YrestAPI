@@ -442,11 +442,11 @@ func TestDistinctSelectAddsOrderColumnsToGroupBy(t *testing.T) {
 
 	prev := Registry
 	Registry = map[string]*Model{
-		"Stage":                 stage,
-		"Contract":              contract,
-		"Contragent":            contr,
+		"Stage":                  stage,
+		"Contract":               contract,
+		"Contragent":             contr,
 		"ContragentOrganization": contrOrg,
-		"Organization":          org,
+		"Organization":           org,
 	}
 	t.Cleanup(func() { Registry = prev })
 	if err := LinkModelRelations(); err != nil {

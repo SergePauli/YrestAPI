@@ -26,9 +26,9 @@ type aliasCacheEntry struct {
 }
 
 type aliasMapCache struct {
-	mu        sync.Mutex
-	items     map[string]*aliasCacheEntry
-	lastSweep time.Time
+	mu         sync.Mutex
+	items      map[string]*aliasCacheEntry
+	lastSweep  time.Time
 	totalBytes int64
 	maxBytes   int64
 }
@@ -124,10 +124,10 @@ func aliasCacheKey(modelName string, preset *DataPreset, filters map[string]any,
 	}
 
 	payload := map[string]any{
-		"model":  modelName,
-		"preset": presetName,
+		"model":   modelName,
+		"preset":  presetName,
 		"filters": filters,
-		"sorts":  sorts,
+		"sorts":   sorts,
 	}
 
 	data, err := canonicalJSON(payload)

@@ -24,7 +24,7 @@ func TestScanPresetFields_BelongsToNestedPaths(t *testing.T) {
 		Presets: map[string]*DataPreset{
 			"item": {
 				Fields: []Field{
-					{Type: "preset", Source: "area", NestedPreset: "item", _PresetRef:  &DataPreset{
+					{Type: "preset", Source: "area", NestedPreset: "item", _PresetRef: &DataPreset{
 						Name: "item",
 						Fields: []Field{
 							{Type: "int", Source: "id"},
