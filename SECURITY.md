@@ -7,7 +7,8 @@ Please do not open a public issue for a suspected vulnerability.
 Preferred reporting path:
 
 1. Use GitHub private vulnerability reporting for this repository, if available.
-2. If private reporting is unavailable, open a minimal issue without exploit details and ask for a private contact channel.
+2. If private reporting is unavailable, contact via Telegram: `@SergePauli`.
+3. If neither option works, open a minimal public issue without exploit details and ask for a private contact channel.
 
 Include:
 

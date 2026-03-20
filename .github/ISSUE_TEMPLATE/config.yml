@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/SergePauli/YrestAPI/security/advisories/new
+    about: Use GitHub private vulnerability reporting instead of opening a public issue
   - name: Commercial or licensing questions
     url: https://github.com/SergePauli/YrestAPI/issues/new?labels=licensing&title=%5BLicensing%5D%20
     about: Use this path for commercial use questions or separate licensing discussions
+  - name: Community chat
+    url: https://t.me/YrestAPI
+    about: Use the YrestAPI Telegram group for general questions and discussion
