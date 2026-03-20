@@ -10,6 +10,10 @@ This repository contains a Go service with declarative YAML models and import to
 - For security issues, do not use public issues first. Follow [SECURITY.md](SECURITY.md).
 - If the change affects generated/imported YAML, include an example or fixture that shows the new behavior.
 
+## Licensing Questions
+
+For commercial use questions or separate licensing discussions, open a GitHub issue with the `licensing` label.
+
 ## Local Setup
 
 ```bash

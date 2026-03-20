@@ -377,3 +377,18 @@ Integration test behavior:
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+YrestAPI is licensed under the GNU General Public License v3.0 or, at your option, any later version (`GPLv3+`).
+See [LICENSE.txt](LICENSE.txt).
+
+### License in practice
+
+This section is only a practical summary for engineering discussions. It is not legal advice, not a separate license, and not an additional permission beyond [LICENSE.txt](LICENSE.txt).
+
+- YrestAPI is a copyleft project under `GPLv3+`.
+- Internal evaluation and internal use are usually the least complicated scenarios.
+- Distribution of the software, modified versions, or products that include GPL-covered code is where GPL obligations usually become relevant.
+- If your planned use is commercial and you need a separate licensing conversation, open a GitHub issue with the `licensing` label.
+- Dual licensing is not offered by default today. It may be considered later, but only after an explicit, deliberate maintainer decision.

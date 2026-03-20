@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Commercial or licensing questions
+    url: https://github.com/SergePauli/YrestAPI/issues/new?labels=licensing&title=%5BLicensing%5D%20
+    about: Use this path for commercial use questions or separate licensing discussions
