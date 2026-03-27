@@ -24,6 +24,7 @@ func InitRoutes(cfg *config.Config) error {
 	http.HandleFunc("/api/count", withCORS(cfg.CORS.AllowOrigin, cfg.CORS.AllowCredentials, withLogging(withAuth(validator, handler.CountHandler))))
 	http.HandleFunc("/healthz", withLogging(healthzHandler))
 	http.HandleFunc("/readyz", withLogging(readyzHandler))
+	http.HandleFunc("/debug/logs", withLogging(withDebugToken(cfg.Debug.LogsToken, logsHandler)))
 	// Добавьте другие обработчики по мере необходимости
 	return nil
 }

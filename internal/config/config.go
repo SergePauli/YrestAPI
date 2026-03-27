@@ -20,6 +20,7 @@ type Config struct {
 	AliasCache  AliasCacheConfig
 	CORS        CORSConfig
 	Auth        AuthConfig
+	Debug       DebugConfig
 }
 
 type AliasCacheConfig struct {
@@ -34,6 +35,10 @@ type CORSConfig struct {
 type AuthConfig struct {
 	Enabled bool
 	JWT     JWTConfig
+}
+
+type DebugConfig struct {
+	LogsToken string
 }
 
 type JWTConfig struct {
@@ -76,6 +81,9 @@ func LoadConfig() *Config {
 				PublicKeyPath:  getEnvOptional("AUTH_JWT_PUBLIC_KEY_PATH"),
 				ClockSkewSec:   getEnvInt64("AUTH_JWT_CLOCK_SKEW_SEC", 60),
 			},
+		},
+		Debug: DebugConfig{
+			LogsToken: getEnvOptional("DEBUG_LOGS_TOKEN"),
 		},
 	}
 

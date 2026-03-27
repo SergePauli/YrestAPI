@@ -173,11 +173,27 @@ The repository keeps `db/` as an intentionally empty primary model directory pla
 
 For Docker DX, the image copies both `/app/db` and `/app/test_db`.
 
-## Health Checks And Auth
+## Health Checks
 
 - `GET /healthz` returns `200 OK` while the HTTP loop is alive
 - `GET /readyz` returns `200 OK` only when the model registry is initialized and PostgreSQL is reachable
 - both endpoints are unauthenticated and intended for liveness/readiness probes
+
+## Operational Diagnostics
+
+- structured logs are written to `log/app.log` in JSONL format
+- `GET /debug/logs` returns recent entries from that file
+- query params:
+  - `level=debug|info|warn|error`
+  - `limit=1..100` with default `20`
+  - `msg=<substring>` for case-insensitive filtering by `msg`
+  - `key=<field>` for exact JSON field-name matches
+  - `value=<substring>` for case-insensitive partial matches across any value in the entry
+- example: `GET /debug/logs?level=error&key=error&value=tcp&limit=5`
+- `/debug/logs` is protected by a shared debug token instead of JWT
+- configure `DEBUG_LOGS_TOKEN` and send it as `X-Debug-Token: <token>`
+
+## Authorization
 
 When `AUTH_ENABLED=true`, each API request must include `Authorization: Bearer <token>`.
 
@@ -360,69 +376,6 @@ Rules:
 - if `reentrant: false`, cyclic re-entry fails startup validation
 - if `max_depth` is exceeded, traversal is capped
 - if omitted for a reentrant cycle, default `max_depth=3` is applied with a warning
-
-## Localization
-
-- dictionaries live in `cfg/locales/<locale>.yml`
-- the active locale is loaded into a tree structure
-- date/time formats can be customized via `layoutSettings`
-- lookup order is `model -> preset -> field`, then fallback to more global matches
-- if nothing is found, the original value is returned
-- to localize a field set `localize: true`
-- numeric codes are matched as numbers when used with `type: int`
-
-Example dictionary:
-
-```yaml
-Person:
-  list:
-    status:
-      0: "Inactive"
-      1: "Active"
-  gender:
-    male: "Male"
-    female: "Female"
-```
-
-Example fields:
-
-```yaml
-fields:
-  - source: status
-    type: int
-    localize: true
-  - source: gender
-    type: string
-    localize: true
-```
-
-Example locale layouts:
-
-```yaml
-layoutSettings:
-  date: "02.01.2006"
-  ttime: "15:04:05"
-  datetime: "02.01.2006 15:04:05"
-```
-
-## Polymorphic Relations
-
-Declare a polymorphic `belongs_to` like this:
-
-```yaml
-relations:
-  auditable:
-    model: "*"
-    type: belongs_to
-    polymorphic: true
-```
-
-Rules:
-
-- parent table must have `<relation>_id` and `<relation>_type`
-- `type_column` may override the default type column name
-- resolver batches child queries by type
-- nested preset name must exist on each target model
 
 ## Reusing Templates With `include`
 
@@ -627,6 +580,50 @@ Notes:
 - formatter fields are not included in SQL queries
 - they are resolved only at post-processing stage
 
+## Field Localization
+
+- dictionaries live in `cfg/locales/<locale>.yml`
+- the active locale is loaded into a tree structure
+- date/time formats can be customized via `layoutSettings`
+- lookup order is `model -> preset -> field`, then fallback to more global matches
+- if nothing is found, the original value is returned
+- to localize a field set `localize: true`
+- numeric codes are matched as numbers when used with `type: int`
+
+Example dictionary:
+
+```yaml
+Person:
+  list:
+    status:
+      0: "Inactive"
+      1: "Active"
+  gender:
+    male: "Male"
+    female: "Female"
+```
+
+Example fields:
+
+```yaml
+fields:
+  - source: status
+    type: int
+    localize: true
+  - source: gender
+    type: string
+    localize: true
+```
+
+Example locale layouts:
+
+```yaml
+layoutSettings:
+  date: "02.01.2006"
+  ttime: "15:04:05"
+  datetime: "02.01.2006 15:04:05"
+```
+
 ## Nested Fields
 
 Use `type: nested_field` with a path in `{...}` to lift nested data into the current preset without SQL joins.
@@ -703,6 +700,25 @@ presets:
         type: string
         alias: item_only
 ```
+
+## Polymorphic Relations
+
+Declare a polymorphic `belongs_to` like this:
+
+```yaml
+relations:
+  auditable:
+    model: "*"
+    type: belongs_to
+    polymorphic: true
+```
+
+Rules:
+
+- parent table must have `<relation>_id` and `<relation>_type`
+- `type_column` may override the default type column name
+- resolver batches child queries by type
+- nested preset name must exist on each target model
 
 ## Known Limitations
 

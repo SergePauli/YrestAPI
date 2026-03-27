@@ -291,6 +291,13 @@ fields:
 - structured JSONL logs are written to `log/app.log`
 - request logging includes method, path, and status
 - startup failures are also emitted to stderr with a short reason
+- `GET /debug/logs` returns recent log entries from `log/app.log`
+- `/debug/logs` supports `level`, `limit`, `msg`, `key`, and `value` query filters
+- `msg` filters by partial match against the log `msg` field
+- `key` filters by exact JSON field name in the log entry
+- `value` filters by partial match against any value in the log entry
+- `/debug/logs` is protected by the `X-Debug-Token` header instead of JWT
+- configure `DEBUG_LOGS_TOKEN` with a shared secret and send it as `X-Debug-Token: <token>`
 
 ### Health Endpoints
 
@@ -330,6 +337,7 @@ Configuration is read from environment variables:
 | `AUTH_JWT_PUBLIC_KEY_PATH` | empty | PEM public key path |
 | `AUTH_JWT_CLOCK_SKEW_SEC` | `60` | Allowed clock skew |
 | `CORS_ALLOW_ORIGIN` | `*` | Allowed CORS origin(s) |
+| `DEBUG_LOGS_TOKEN` | empty | Shared token required by `/debug/logs` via `X-Debug-Token` |
 | `CORS_ALLOW_CREDENTIALS` | `false` | Send `Access-Control-Allow-Credentials: true` |
 | `ALIAS_CACHE_MAX_BYTES` | `0` | Alias cache limit, `0` = unlimited |
 
