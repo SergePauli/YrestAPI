@@ -50,58 +50,245 @@ Payload:
 }
 ```
 
-Rules:
+#### Request DSL
 
-- `model` is the logical model name from `db/*.yml`
-- `preset` is the preset name inside the model
-- `filters` is a map of `field__op: value`
+This request body is also a small DSL. The engine interprets it in the following order:
 
-Supported filter operators:
+1. choose model
+2. choose preset
+3. normalize filters and sorts through aliases
+4. build alias map and required joins
+5. generate `SELECT`, `WHERE`, `HAVING`, `ORDER BY`, `LIMIT`, `OFFSET`
+6. fold rows into nested JSON and apply post-processing
 
-- `__eq` default equality
-- `__cnt` contains
-- `__start` prefix
-- `__end` suffix
-- `__lt`
-- `__lte`
-- `__gt`
-- `__gte`
-- `__in`
+#### `model`
 
-String behavior:
+Example:
 
-- `__eq`, `__cnt`, `__start`, `__end` are case-insensitive by default
-- case-sensitive variants: `__eq_cs`, `__cnt_cs`, `__start_cs`, `__end_cs`
+```json
+{ "model": "Person" }
+```
 
-Null behavior:
+Runtime effect:
 
-- `field__null: true` -> `IS NULL`
-- `field__null: false` -> `IS NOT NULL`
-- aliases: `field__is_null`, `field__not_null`
+- selects one model from the registry built from `db/*.yml`
+- determines the root SQL table, relation graph, aliases, computable fields, and presets available to the request
+- invalid model names fail before SQL generation
 
-Grouping:
+#### `preset`
+
+Example:
+
+```json
+{ "preset": "card" }
+```
+
+Runtime effect:
+
+- selects one preset of the chosen model
+- determines which fields are selected, which relations are traversed, which nested presets are used, and which post-processing steps are applied
+- invalid preset names fail before SQL generation
+
+#### `filters`
+
+Example:
 
 ```json
 {
-  "or": { "id__in": [0, 1], "id__null": true },
-  "status_id__null": false
+  "filters": {
+    "name__cnt": "John",
+    "org.name_or_org.full_name__cnt": "IBM"
+  }
 }
 ```
 
-Composite fields:
+Runtime effect:
 
-- join multiple paths with `_or_` and `_and_`
-- example: `org.name_or_org.full_name__cnt`
+- filter keys are normalized through model aliases before SQL is built
+- paths referenced by filters are added to the alias map, which can create additional joins even if the preset itself does not expose those fields
+- non-aggregate predicates become `WHERE`
+- aggregate/computable predicates may become `HAVING`
 
-Aliases and computable fields:
+##### Filter key shape
 
-- aliases declared in `aliases:` can be used in filters and sorts
-- computable fields declared under `computable:` can also be used directly
+General form:
 
-Sort syntax:
+```text
+<field-or-path>__<operator>
+```
 
-- array of strings like `["path ASC", "other DESC"]`
-- supports aliases and computable fields the same way as filters
+If operator is omitted, default is `__eq`.
+
+Examples:
+
+- `name__cnt`
+- `org.name__eq`
+- `id__in`
+- `status_id__null`
+
+##### Filter field paths
+
+Allowed path styles:
+
+- direct model fields: `name`
+- relation paths: `org.name`
+- alias-based paths: `org.full_name`
+- computable names: `fio`
+- composite paths joined with `_or_` or `_and_`: `org.name_or_org.full_name`
+
+Runtime effect:
+
+- dotted paths traverse relations and force the SQL builder to add the necessary joins
+- alias-based paths are expanded before join detection
+- composite paths generate grouped predicates combined with SQL `OR` or `AND`
+
+##### Supported filter operators
+
+- `__eq`: equality; default when operator is omitted
+- `__in`: membership against a slice
+- `__lt`: less than
+- `__lte`: less than or equal
+- `__gt`: greater than
+- `__gte`: greater than or equal
+- `__cnt`: substring match
+- `__start`: prefix match
+- `__end`: suffix match
+- `__null`: `IS NULL` / `IS NOT NULL` depending on boolean value
+- `__is_null`: unconditional `IS NULL`
+- `__not_null`: unconditional `IS NOT NULL`
+
+##### String matching behavior
+
+Runtime effect:
+
+- `__eq`, `__cnt`, `__start`, `__end` are case-insensitive by default
+- case-insensitive equality uses `LOWER(field) = LOWER(?)`
+- case-insensitive contains/prefix/suffix use `ILIKE`
+- case-sensitive variants are available via suffix `_cs`
+
+Examples:
+
+- `name__eq_cs`
+- `name__cnt_cs`
+- `name__start_cs`
+- `name__end_cs`
+
+##### Null handling
+
+Examples:
+
+```json
+{
+  "filters": {
+    "deleted_at__null": true,
+    "status_id__not_null": true
+  }
+}
+```
+
+Runtime effect:
+
+- `field__null: true` becomes `field IS NULL`
+- `field__null: false` becomes `field IS NOT NULL`
+- `field__is_null` becomes `field IS NULL`
+- `field__not_null` becomes `field IS NOT NULL`
+
+##### Grouping with `or` / `and`
+
+Example:
+
+```json
+{
+  "filters": {
+    "or": {
+      "id__in": [0, 1],
+      "id__null": true
+    },
+    "status_id__null": false
+  }
+}
+```
+
+Runtime effect:
+
+- top-level keys are combined with implicit `AND`
+- nested `or` / `and` groups create explicit boolean subexpressions
+- array-valued `or` / `and` groups are treated as multiple nested groups
+
+#### `sorts`
+
+Example:
+
+```json
+{
+  "sorts": ["org.name DESC", "id ASC"]
+}
+```
+
+Runtime effect:
+
+- each sort entry is parsed as `<path> [ASC|DESC]`
+- sort paths are normalized through aliases before SQL generation
+- sort paths also contribute to join detection, even if the sorted field is not returned by the preset
+- sorting can target direct fields, relation paths, aliases, and computable fields
+- if the query requires `DISTINCT`/grouping because of `has_many`, sort expressions may be injected into `SELECT` / `GROUP BY`
+
+#### `offset`
+
+Example:
+
+```json
+{ "offset": 100 }
+```
+
+Runtime effect:
+
+- adds SQL `OFFSET 100`
+- shifts the result window after filtering and sorting
+- has no effect when omitted or `0`
+
+#### `limit`
+
+Example:
+
+```json
+{ "limit": 50 }
+```
+
+Runtime effect:
+
+- adds SQL `LIMIT 50`
+- caps the number of root rows returned by `/api/index`
+- has no effect when omitted or `0`
+
+#### Combined effect of filters, sorts, and pagination
+
+The request:
+
+```json
+{
+  "model": "Person",
+  "preset": "card",
+  "filters": {
+    "org.name__cnt": "IBM"
+  },
+  "sorts": ["org.name ASC", "id DESC"],
+  "offset": 50,
+  "limit": 25
+}
+```
+
+causes the engine to:
+
+1. resolve model `Person`
+2. load preset `card`
+3. expand alias paths inside filters and sorts
+4. add joins required by `org.name`
+5. generate `WHERE` for `org.name ILIKE '%IBM%'`
+6. generate `ORDER BY org.name ASC, id DESC`
+7. apply `OFFSET 50`
+8. apply `LIMIT 25`
+9. scan SQL rows, fold nested relations, then run formatter/localization cleanup
 
 Response:
 
@@ -136,10 +323,10 @@ Payload:
 
 Notes:
 
-- filters and sorts can traverse relations with dotted paths
-- path resolution goes through the alias map
-- alias maps are cached in memory
-- query execution hits PostgreSQL directly
+- uses the same model and filter DSL as `/api/index`
+- still normalizes aliases and traverses dotted relation paths
+- generates a `COUNT` query instead of row selection
+- `sorts`, `offset`, and `limit` do not shape the returned payload, because the result is a single scalar count
 
 ## Service Configuration
 
@@ -287,12 +474,53 @@ presets:
 
 ## How The Engine Works
 
-- at startup the service loads `.yml` model files from `MODELS_DIR`
-- it builds a registry of models, relations, presets, computable fields, and aliases
-- it validates the graph
-- the registry stays in memory and is reused for all requests
+The service is organized as a staged execution pipeline.
 
-Validation checks:
+### 1. Router Layer
+
+Runtime responsibility:
+
+- accepts HTTP requests on `/api/index` and `/api/count`
+- applies CORS policy
+- applies JWT validation when `AUTH_ENABLED=true`
+- records request/response logs
+- dispatches valid requests to the corresponding handler
+
+Practical effect:
+
+- router does not know business structure of models
+- it is only responsible for HTTP concerns and passing normalized request context deeper into the stack
+
+### 2. Handler Layer
+
+Runtime responsibility:
+
+- reads and validates JSON request bodies
+- selects the requested model and preset names from the payload
+- for `/api/index`, creates an `IndexRequest` and hands it to `Resolver`
+- for `/api/count`, builds a count query directly from the same model registry and filter DSL
+
+Practical effect:
+
+- handlers are thin orchestration points
+- they do not contain model-specific logic
+- all domain structure comes from the registry built from YAML
+
+### 3. Registry Initialization
+
+At startup the service:
+
+1. loads `.yml` model files from `MODELS_DIR`
+2. derives logical model names from filenames
+3. merges template includes
+4. resolves preset inheritance
+5. links relation targets and `through` chains
+6. validates model graph and field configuration
+7. builds alias maps used by presets
+
+The registry then stays in memory and is reused by every request.
+
+Validation checks include:
 
 - all referenced models, relations, and presets exist
 - relation types are valid
@@ -306,10 +534,167 @@ Validation checks:
 
 If validation fails, startup is aborted.
 
-### Model YAML Structure
+### 4. Resolver Planning
+
+For `/api/index`, the `Resolver` is the execution planner and orchestrator.
+
+Runtime responsibility:
+
+- resolves `model` and `preset` against the registry
+- normalizes filters and sorts through aliases
+- builds or reuses the alias map for every path needed by:
+  - preset fields
+  - filters
+  - sorts
+  - computable expressions
+- determines which joins and SQL expressions are required
+
+Practical effect:
+
+- the resolver does not hardcode any model behavior
+- it derives its execution plan entirely from the request DSL plus the model DSL already loaded into the registry
+
+### 5. Root SQL Execution
+
+For the selected model and preset, the resolver asks the model layer to build one root SQL query.
+
+This query may include:
+
+- `FROM <table> AS main`
+- joins required by preset fields
+- extra joins required only by filters or sorts
+- computable expressions in `SELECT`
+- `WHERE` / `HAVING` from the filter DSL
+- `ORDER BY`
+- `LIMIT` / `OFFSET`
+
+The query is then executed through the PostgreSQL pool.
+
+### 6. Row Scan And Fold
+
+After the root SQL returns rows:
+
+- the scanner reconstructs flat SQL columns into item maps
+- nested `belongs_to` branches already present in the root query are folded into nested JSON objects
+- the resolver now has the first complete approximation of the response tree
+
+This is the point where the engine has root objects, but may still be missing `has_one` / `has_many` branches.
+
+### 7. Recursive And Parallel Resolver Branches
+
+To avoid solving relation expansion with naive per-row N+1 queries, the resolver collects tail relations from the preset tree.
+
+Runtime behavior:
+
+- it recursively walks the preset tree through already folded `belongs_to` branches
+- every `has_one` and `has_many` branch is collected as a tail specification
+- for each tail, parent IDs are collected first
+- one child `Resolver` request is then started for that tail
+- these child resolver requests are launched in parallel using goroutines and synchronized with `sync.WaitGroup`
+
+Why this matters:
+
+- the engine does not run one SQL query per parent row
+- instead, it batches each relation branch by parent IDs
+- this keeps the relation expansion closer to:
+  - one root resolver branch
+  - plus one batched child resolver branch per `has_` relation
+- this is how the service mitigates the classic N+1 query problem
+
+Recursive effect:
+
+- child resolver branches may themselves discover deeper `has_` tails
+- in that case the same resolver logic repeats recursively
+- so the overall execution plan is a tree of resolver branches, not a flat one-shot query
+
+### 8. Merge And Stitch Phase
+
+When child resolver branches finish:
+
+- each child result set is grouped by relation foreign key
+- grouped child rows are stitched back into the correct parent item
+- `has_one` attaches the first grouped row or `nil`
+- `has_many` attaches the full grouped slice
+- polymorphic `belongs_to` branches are grouped by type and resolved by additional typed child resolver requests
+
+Practical effect:
+
+- the caller receives one coherent JSON document
+- under the hood that JSON may have been assembled from multiple batched resolver branches running concurrently
+
+### 9. Finalization Phase
+
+Only after all relation branches are stitched together does the resolver run finalization.
+
+This phase applies:
+
+- formatter fields
+- nested_field extraction
+- localization
+- collapse of empty `belongs_to` containers
+- removal of `internal: true` helper fields
+- preset alias application for final output keys
+
+Practical effect:
+
+- all post-processing sees the fully assembled object tree
+- formatters can safely reference nested values that were fetched by child resolver branches
+- the final JSON is produced after data acquisition and structural merge are complete
+
+### 10. Response Emission
+
+Finally:
+
+- `/api/index` returns the finalized array of JSON objects
+- `/api/count` returns a scalar count payload
+- router middleware logs the resulting HTTP status and returns the encoded response to the client
+
+## Model DSL
+
+This section documents the YAML DSL in the same hierarchy in which the engine loads and uses it:
+
+1. model file
+2. root model keys
+3. relations and computable fields
+4. presets
+5. preset fields
+6. post-processing and localization
+
+Naming conventions in the schema and model relations are intentionally aligned with ActiveRecord conventions from Ruby on Rails:
+
+- logical model names are singular class-like names such as `Person`, `Contract`, `Organization`
+- SQL table names are usually pluralized snake_case names such as `people`, `contracts`, `organizations`
+- foreign keys normally follow the `<model>_id` convention
+- relation names are expected to be readable ActiveRecord-style association names
+
+Reference:
+
+- Active Record Basics, Object Relational Mapping: https://guides.rubyonrails.org/active_record_basics.html#object-relational-mapping
+
+### 1. Model File
+
+Each file `MODELS_DIR/<Name>.yml` creates one model entry in the registry.
+
+Example:
+
+```text
+db/Person.yml
+```
+
+Runtime effect:
+
+- the filename without extension becomes the logical model name in the registry
+- `Person.yml` creates registry key `Person`
+- this logical name is what the API expects in request payloads: `"model": "Person"`
+- there is no DSL key `model_name`; the name is derived from the filename
+
+### 2. Root Model Mapping
+
+Example:
 
 ```yaml
 table: people
+include: shared_relations
 aliases:
   org: "contragent.organization"
 computable:
@@ -320,66 +705,40 @@ relations:
   person_name:
     model: PersonName
     type: has_one
-    where: .used = true
 presets:
   card:
     fields:
       - source: id
         type: int
-      - source: person_name
-        type: preset
-        preset: item
-      - source: fio
-        type: computable
-        alias: full_name
 ```
 
-Key points:
+Supported root keys are:
 
-- `table` is mandatory
-- `relations` define the graph, optionally with `through`, `where`, `order`, `polymorphic`
-- `presets` describe fields to select and return
-- `type: preset` walks relations
-- `type: computable` inserts expressions
-- `type: formatter` post-processes values
-- `type: nested_field` copies nested JSON branches
-- `computable` and `aliases` are global per model
+- `table`
+- `include`
+- `aliases`
+- `computable`
+- `relations`
+- `presets`
 
-### Recursive And Self Relations
+#### `table`
 
 Example:
 
 ```yaml
-table: contracts
-relations:
-  next:
-    model: Contract
-    type: has_one
-    fk: prev_contract_id
-    reentrant: true
-    max_depth: 3
-presets:
-  chain:
-    fields:
-      - source: id
-        type: int
-      - source: next
-        type: preset
-        preset: chain
+table: people
 ```
 
-Rules:
+Runtime effect:
 
-- `reentrant: true` is required to return to an already visited model
-- `max_depth` limits repeated traversal on one path
-- `field.max_depth` overrides relation `max_depth`
-- if `reentrant: false`, cyclic re-entry fails startup validation
-- if `max_depth` is exceeded, traversal is capped
-- if omitted for a reentrant cycle, default `max_depth=3` is applied with a warning
+- binds the logical model to a concrete SQL table
+- the query builder uses this value in the root `FROM`
+- all relation joins and field resolution start from this table alias
+- this key is mandatory for a concrete model
 
-## Reusing Templates With `include`
+#### `include`
 
-You can pull relations and presets from `db/templates/*.yml`:
+Example:
 
 ```yaml
 include: shared_relations
@@ -391,31 +750,239 @@ Or:
 include: [shared_relations, auditable]
 ```
 
-Rules:
+Runtime effect:
 
-- relations from templates are added if missing
-- if a relation exists in the model, empty fields are filled from the template
-- template preset fields are applied first
-- model fields override or extend by alias/source
-- fields marked with `alias: skip` in templates are ignored
+- loads reusable fragments from `db/templates/<name>.yml`
+- merges template `relations` and `presets` into the current model before linking
+- model-local values win on conflicts
+- template fields marked with `alias: skip` are ignored during merge
 
-## `where` And `through_where`
+Use `include` when:
 
-A leading `.` in a condition is replaced with the unique SQL alias of that relation.
+- multiple models share the same relation graph
+- multiple models reuse the same preset skeleton
+
+#### `aliases`
+
+Example:
+
+```yaml
+aliases:
+  org: "contragent.organization"
+```
+
+Runtime effect:
+
+- creates shortcut names for long relation paths
+- these shortcuts are available to filter and sort parsing
+- `org.name__cnt` is resolved as `contragent.organization.name__cnt`
+- aliases do not change the SQL shape by themselves; they change path resolution
+
+#### `computable`
+
+Example:
+
+```yaml
+computable:
+  fio:
+    source: "(select concat({surname}, ' ', {name}, ' ', {patrname}))"
+    type: string
+```
+
+Runtime effect:
+
+- declares virtual model-level fields available to all presets of the model
+- the engine inserts `source` into `SELECT` when a preset field uses `type: computable`
+- `{path}` placeholders inside `source` are replaced with SQL aliases from the alias map
+- if `where` is specified, it is used for filter/sort SQL when different from the `SELECT` expression
+
+Nested keys for each computable entry:
+
+- `source`: SQL expression or subquery used in `SELECT`
+- `where`: alternative expression for `WHERE` / `ORDER BY`
+- `type`: result type used by the scanner and formatter pipeline
+
+#### `relations`
+
+Runtime effect:
+
+- defines the navigable graph between models
+- the query builder uses relations to create joins
+- nested preset fields use relation entries to know how to fetch related rows
+- filter and sort paths also resolve through this graph
+- relation type also determines which phase of `Resolver` will materialize the data
+
+Resolver pipeline for relations:
+
+1. the root `Resolver` builds one main SQL query for the requested model and preset
+2. `belongs_to` branches are resolved inside that main query and folded immediately into nested objects
+3. after root rows are scanned, the resolver walks the preset tree and collects all `has_one` / `has_many` tails, recursively descending through already folded `belongs_to` branches
+4. each collected tail starts its own child `Resolver` call in a separate goroutine
+5. child results are grouped by the relation foreign key and stitched back into the parent items
+6. only after that merge step does the final post-processing run: formatter, nested_field, localization, internal cleanup, alias application
+
+Practical consequence:
+
+- `belongs_to` behaves like part of one root fetch pipeline
+- `has_one` / `has_many` behave like child fetch pipelines scheduled in parallel and merged back later
+- the final JSON still looks uniform because all branches go through one common finalization stage
+
+See `3. Relations` below.
+
+#### `presets`
+
+Runtime effect:
+
+- defines named response shapes for the model
+- the resolver reads one preset and uses its fields to build `SELECT`, joins, folding, formatting, and output cleanup
+- the API payload field `"preset"` selects one entry from this map
+
+See `4. Presets` below.
+
+### 3. Relations
 
 Example:
 
 ```yaml
 relations:
-  phone:
-    model: Contact
+  person_name:
+    model: PersonName
     type: has_one
-    through: PersonContact
-    where: .type = 'Phone'
-    through_where: .used = true
+    fk: person_id
+    where: .used = true
 ```
 
-SQL shape:
+Each relation name becomes a path segment that can be used:
+
+- in preset fields with `type: preset`
+- in alias definitions
+- in filters and sorts
+- in nested formatters and nested-field paths
+
+#### `type`
+
+Example:
+
+```yaml
+type: has_one
+```
+
+Supported values:
+
+- `belongs_to`
+- `has_one`
+- `has_many`
+
+Runtime effect:
+
+- determines join direction and cardinality
+- determines whether the folded result is a scalar object or an array
+- affects formatter behavior for relation-based formatting
+- chooses whether the relation is materialized inside the main root query or by child resolver branches
+
+Type-specific runtime behavior:
+
+- `belongs_to`: resolved as part of the main root query; nested objects are folded directly from the scanned SQL rows
+- `has_one`: registered as a tail relation; fetched by a child resolver, grouped by parent key, then only the first grouped item is attached back
+- `has_many`: registered as a tail relation; fetched by a child resolver, grouped by parent key, then the full grouped slice is attached back
+
+#### `model`
+
+Example:
+
+```yaml
+model: PersonName
+```
+
+Runtime effect:
+
+- points to another registry model by logical name
+- the linker resolves this string to an actual model reference during startup
+- invalid model names fail startup validation
+- child resolver calls for `has_one` / `has_many` use this logical model name to start the next resolver branch
+
+#### `table`
+
+Example:
+
+```yaml
+table: person_names
+```
+
+Runtime effect:
+
+- overrides the SQL table used by the relation
+- useful when the related SQL source differs from the target model default
+
+#### `fk`
+
+Example:
+
+```yaml
+fk: person_id
+```
+
+Runtime effect:
+
+- sets the foreign key used in join generation
+- changes the `ON` clause produced by the SQL builder
+- for `has_one` / `has_many`, this same key is later used to group child resolver rows before stitching them back into parent items
+
+#### `pk`
+
+Example:
+
+```yaml
+pk: code
+```
+
+Runtime effect:
+
+- overrides the current-model key used in the join instead of default `id`
+- changes how the engine links the current row to the related table
+- also determines which parent value the resolver collects before launching child resolver branches for `has_one` / `has_many`
+
+#### `through`
+
+Example:
+
+```yaml
+through: PersonContact
+```
+
+Runtime effect:
+
+- tells the engine to build a join through an intermediate model
+- instead of direct join `main -> target`, the SQL becomes `main -> through -> target`
+- for tail relations, the child resolver request is synthesized through the intermediate model before results are unwrapped back into the final branch
+
+#### `where`
+
+Example:
+
+```yaml
+where: .type = 'Phone'
+```
+
+Runtime effect:
+
+- adds an extra condition to the final relation join
+- leading `.` is replaced with the generated SQL alias of that relation table
+
+#### `through_where`
+
+Example:
+
+```yaml
+through_where: .used = true
+```
+
+Runtime effect:
+
+- adds an extra condition to the intermediate `through` join
+- filters rows before the final related model is joined
+
+Example SQL shape:
 
 ```sql
 LEFT JOIN person_contacts AS pc
@@ -427,103 +994,335 @@ ON (pc.contact_id = c.id)
 AND (c.type = 'Phone')
 ```
 
-Meaning:
+#### `order`
 
-- `where` filters the final relation table
-- `through_where` filters the intermediate table
-
-## Formatter
-
-Formatters transform or combine field values after SQL execution and after merging related data.
-
-They are useful when you want to:
-
-- collapse a nested preset into a string
-- build computed display text
-- derive compact labels from nested objects
-- apply conditional display logic without controller code
-
-### Syntax
-
-Inline computed field:
+Example:
 
 ```yaml
-- source: "{surname} {name}[0] {patronymic}[0..1]"
-  type: formatter
-  alias: full_name
+order: priority ASC, id DESC
 ```
 
-Formatter on a relation:
+Runtime effect:
+
+- defines default ordering for rows fetched through that relation
+- primarily affects the order inside `has_many` collections
+- child resolver requests for tail relations inherit this order when building the nested branch query
+
+#### `reentrant`
+
+Example:
 
 ```yaml
-- source: contacts
-  type: preset
-  alias: phones
-  formatter: "{type}: {value}"
-  preset: phone_list
+reentrant: true
 ```
 
-### Token Rules
+Runtime effect:
 
-Inside `{...}` you can use:
+- explicitly allows returning to an already visited model on the current traversal path
+- required for recursive/self-referential relation graphs
+- if omitted or `false`, cyclic re-entry fails startup validation
 
-- `{field}`
-- `{relation.field}`
-- `{name}[0]`
-- `{name}[0..1]`
+#### `max_depth`
 
-### Behavior By Relation Type
+Example:
 
-| Relation type | Result |
-| --- | --- |
-| `belongs_to` | string from related object |
-| `has_one` | string from child object |
-| `has_many` | array of strings |
-| simple field | string from current row |
+```yaml
+max_depth: 3
+```
 
-### Example
+Runtime effect:
+
+- caps how deep a recursive traversal may go on one path
+- protects SQL building and result folding from unbounded recursion
+- field-level `max_depth` overrides relation-level `max_depth`
+- if a reentrant cycle omits `max_depth`, default `3` is applied with a warning
+
+#### `polymorphic`
+
+Example:
+
+```yaml
+polymorphic: true
+```
+
+Runtime effect:
+
+- enables polymorphic `belongs_to`
+- the resolver reads `<relation>_type` or `type_column` to decide which target model to load
+- resolver batches child fetches by concrete type
+
+#### `type_column`
+
+Example:
+
+```yaml
+type_column: auditable_kind
+```
+
+Runtime effect:
+
+- overrides the default discriminator column `<relation>_type` for polymorphic relations
+
+### 4. Presets
+
+Example:
 
 ```yaml
 presets:
   card:
+    extends: item, head
     fields:
       - source: id
         type: int
-        alias: id
-      - source: "{person_name.value}"
-        type: formatter
-        alias: name
-      - source: contacts
-        type: preset
-        alias: contacts
-        formatter: "{type}: {value}"
-        preset: contact_short
 ```
 
-Result:
+Each preset is a named output shape for one API use case.
 
-```json
-[
-  {
-    "id": 64,
-    "name": "Ivanov A V",
-    "contacts": ["Phone: +7 923 331 49 55", "Email: example@mail.com"]
-  }
-]
-```
+#### Preset name
 
-### Ternary Operators
-
-Syntax:
+Example:
 
 ```yaml
-{ <condition> ? <then> : <else> }
+presets:
+  card:
 ```
 
-Condition forms:
+Runtime effect:
 
-- full form: `<field> <op> <value>`
-- shorthand: just `<field>` for truthy/falsy
+- becomes the value used in API requests: `"preset": "card"`
+- selects the exact field tree to query, fold, localize, and return
+
+#### `extends`
+
+Example:
+
+```yaml
+extends: base, head
+```
+
+Runtime effect:
+
+- merges parent preset fields into the current preset before runtime use
+- parents are applied left to right
+- later parents override earlier ones by alias/source but preserve field order
+- local fields are applied last and also override inherited fields
+
+#### `fields`
+
+Runtime effect:
+
+- ordered list of output instructions
+- each field affects SQL generation, join planning, folding, formatting, or final cleanup depending on its `type`
+
+### 5. Fields
+
+Example:
+
+```yaml
+fields:
+  - source: person_name
+    type: preset
+    preset: item
+    alias: name
+```
+
+#### `source`
+
+Runtime effect by field type:
+
+- for simple scalar fields, names a SQL column to select
+- for `preset`, names a relation to traverse
+- for `computable`, names a key from the model `computable:` map
+- for `formatter`, contains the formatter template itself
+- for `nested_field`, contains a `{path}` expression to copy from already folded nested data
+
+#### `type`
+
+Supported values:
+
+- `int`
+- `string`
+- `bool`
+- `float`
+- `date`
+- `time`
+- `datetime`
+- `UUID`
+- `preset`
+- `computable`
+- `formatter`
+- `nested_field`
+
+Runtime effect:
+
+- tells the engine how to build SQL and how to interpret the field later
+- scalar types become direct `SELECT` columns
+- `preset` adds joins or related fetches
+- `computable` injects SQL expressions
+- `formatter` skips SQL column generation and runs in post-processing
+- `nested_field` copies existing nested data after folding
+
+#### `alias`
+
+Example:
+
+```yaml
+alias: full_name
+```
+
+Runtime effect:
+
+- renames the output key in the final JSON
+- is also used as the stable key for field override/merge during preset inheritance
+- for `formatter`, alias is required because the value does not come from a physical column
+
+#### `preset`
+
+Example:
+
+```yaml
+preset: item
+```
+
+Runtime effect:
+
+- only meaningful for `type: preset`
+- tells the engine which preset of the related model to apply when folding nested data
+
+#### `internal`
+
+Example:
+
+```yaml
+internal: true
+```
+
+Runtime effect:
+
+- the field is still available during formatting, nested-field extraction, and intermediate folding
+- after post-processing it is removed from the final response
+- useful for helper fields that should influence rendering but not leak into JSON output
+
+#### `localize`
+
+Example:
+
+```yaml
+localize: true
+```
+
+Runtime effect:
+
+- enables locale lookup or locale-based date/time formatting for this field
+- lookup order is `model -> preset -> field`, then broader fallbacks
+- if no translation is found, the original value is returned unchanged
+
+#### `max_depth`
+
+Example:
+
+```yaml
+max_depth: 2
+```
+
+Runtime effect:
+
+- only relevant for recursive `type: preset` traversals
+- overrides relation-level recursion depth for this field branch
+
+### 6. Field Type Semantics
+
+#### Scalar fields: `int`, `string`, `bool`, `float`, `date`, `time`, `datetime`, `UUID`
+
+Example:
+
+```yaml
+- source: id
+  type: int
+```
+
+Runtime effect:
+
+- generates one `SELECT` expression from a physical column
+- the scanner reads the SQL result into the output row
+- `localize: true` on temporal types formats values according to locale layouts
+
+#### Nested relation fields: `type: preset`
+
+Example:
+
+```yaml
+- source: person_name
+  type: preset
+  preset: item
+```
+
+Runtime effect:
+
+- resolves `source` as a relation name
+- adds the necessary joins or related fetch plan
+- folds flat SQL rows into nested JSON objects or arrays
+- uses the child preset to determine the nested shape
+
+If the field also has `formatter`, then:
+
+```yaml
+- source: contacts
+  type: preset
+  preset: phone_list
+  alias: phones
+  formatter: "{type}: {value}"
+```
+
+Runtime effect:
+
+- related rows are fetched and folded first
+- formatter then converts the nested object or array into string or string array
+
+#### Computed SQL fields: `type: computable`
+
+Example:
+
+```yaml
+- source: fio
+  type: computable
+  alias: full_name
+```
+
+Runtime effect:
+
+- resolves `fio` from the model `computable:` map
+- injects the computable SQL into `SELECT`
+- returns it under the chosen alias
+
+#### Post-processing fields: `type: formatter`
+
+Example:
+
+```yaml
+- source: "{surname} {name}[0] {patronymic}[0..1]"
+  type: formatter
+  alias: short_name
+```
+
+Runtime effect:
+
+- no standalone SQL column is emitted for this field
+- after SQL execution and nested folding, formatter evaluates the template against current item data
+- final string is written into `alias`
+
+Formatter tokens may reference:
+
+- current scalar fields: `{field}`
+- nested fields: `{relation.field}`
+- slices: `{name}[0]`
+- ranges: `{name}[0..1]`
+
+Formatter ternary syntax:
+
+```yaml
+{? used ? "+" : "-"}
+```
 
 Supported operators:
 
@@ -535,98 +1334,7 @@ Supported operators:
 - `<`
 - `<=`
 
-Supported literals:
-
-- numbers
-- booleans
-- `null`
-- quoted strings
-
-Examples:
-
-```yaml
-- source: `{? used ? "+" : "-"}`
-  type: formatter
-  alias: used_flag
-
-- source: `{? age >= 18 ? "adult" : "minor"}`
-  type: formatter
-  alias: age_group
-
-- source: `{? status == "ok" ? "✔" : "✖"}`
-  type: formatter
-  alias: status_icon
-```
-
-Nested ternaries:
-
-```yaml
-- source: `{? used ? "{? age >= 18 ? "adult" : "minor"}" : "-"}`
-  type: formatter
-  alias: nested_example
-```
-
-Combining conditionals and substitutions:
-
-```yaml
-- source: '{? used ? "+" : "-"} {naming.surname} {naming.name}[0].'
-  type: formatter
-  alias: short_name
-```
-
-Notes:
-
-- formatter fields must define an alias
-- formatter fields are not included in SQL queries
-- they are resolved only at post-processing stage
-
-## Field Localization
-
-- dictionaries live in `cfg/locales/<locale>.yml`
-- the active locale is loaded into a tree structure
-- date/time formats can be customized via `layoutSettings`
-- lookup order is `model -> preset -> field`, then fallback to more global matches
-- if nothing is found, the original value is returned
-- to localize a field set `localize: true`
-- numeric codes are matched as numbers when used with `type: int`
-
-Example dictionary:
-
-```yaml
-Person:
-  list:
-    status:
-      0: "Inactive"
-      1: "Active"
-  gender:
-    male: "Male"
-    female: "Female"
-```
-
-Example fields:
-
-```yaml
-fields:
-  - source: status
-    type: int
-    localize: true
-  - source: gender
-    type: string
-    localize: true
-```
-
-Example locale layouts:
-
-```yaml
-layoutSettings:
-  date: "02.01.2006"
-  ttime: "15:04:05"
-  datetime: "02.01.2006 15:04:05"
-```
-
-## Nested Fields
-
-Use `type: nested_field` with a path in `{...}` to lift nested data into the current preset without SQL joins.
+#### Structural copy fields: `type: nested_field`
 
 Example:
 
@@ -636,74 +1344,90 @@ Example:
   alias: contacts
 ```
 
-The `contacts` array from nested `person` will be copied to the current item even if `person` itself is not exposed.
+Runtime effect:
 
-## Computable Fields
+- does not add SQL by itself
+- copies an already available nested branch into the current object
+- useful when you want to expose a nested value at a flatter output path
 
-Calculated fields are declared at model level and are available in all presets.
+### 7. Localization And Layouts
+
+Locale dictionaries live in `cfg/locales/<locale>.yml`.
+
+Runtime effect:
+
+- loaded once at startup for the active `LOCALE`
+- used only by fields marked `localize: true`
+- dictionary lookup is keyed by model name, preset name, field name, and field value
+
+Example dictionary:
 
 ```yaml
+Person:
+  list:
+    status:
+      0: "Inactive"
+      1: "Active"
+layoutSettings:
+  date: "02.01.2006"
+  ttime: "15:04:05"
+  datetime: "02.01.2006 15:04:05"
+```
+
+Runtime effect of `layoutSettings`:
+
+- `date` changes formatting of `type: date`
+- `ttime` changes formatting of `type: time`
+- `datetime` changes formatting of `type: datetime`
+
+### 8. Example: Full Request Path
+
+```yaml
+table: people
+aliases:
+  org: "contragent.organization"
+relations:
+  person_name:
+    model: PersonName
+    type: has_one
+    where: .used = true
 computable:
   fio:
     source: "(select concat({surname}, ' ', {name}, ' ', {patrname}))"
     type: string
-  stages_sum:
-    source: "(select sum({stages}.amount))"
-    where: "(select sum({stages}.amount))"
-    type: float
 presets:
   card:
     fields:
-      - source: fio
-        alias: full_name
-        type: computable
-      - source: stages_sum
-        type: computable
-```
-
-Rules:
-
-- `{path}` placeholders are replaced with SQL aliases from alias map
-- wrap subqueries in parentheses so they can be safely used in `SELECT`
-- for filters and sorts, refer to the computable field by name
-
-## DRY Config: Inheritance, Templates, Nested Fields
-
-### Multiple preset inheritance
-
-```yaml
-presets:
-  base:
-    fields:
       - source: id
         type: int
-      - source: name
-        type: string
+      - source: person_name
+        type: preset
+        preset: item
+        internal: true
+      - source: "{person_name.name}"
+        type: formatter
         alias: name
-
-  head:
-    fields:
-      - source: full_name
-        type: string
-        alias: name
-      - source: head_only
-        type: string
-        alias: head_only
-
-  item:
-    extends: base, head
-    fields:
-      - source: okopf
-        type: int
-        alias: okopf
-      - source: item_only
-        type: string
-        alias: item_only
+      - source: fio
+        type: computable
+        alias: full_name
 ```
 
-## Polymorphic Relations
+What the engine does:
 
-Declare a polymorphic `belongs_to` like this:
+1. registers model `Person` from filename `Person.yml`
+2. uses `table: people` as the SQL root
+3. links `person_name` to model `PersonName`
+4. loads preset `card`
+5. adds SQL for scalar field `id`
+6. joins and folds nested data for `person_name`
+7. removes `person_name` from output because `internal: true`
+8. builds `name` from the formatter using nested folded data
+9. injects computable SQL for `fio`
+10. returns final JSON keys `id`, `name`, `full_name`
+
+### 9. Polymorphic Relations
+
+Example:
 
 ```yaml
 relations:
@@ -713,12 +1437,12 @@ relations:
     polymorphic: true
 ```
 
-Rules:
+Runtime effect:
 
-- parent table must have `<relation>_id` and `<relation>_type`
-- `type_column` may override the default type column name
-- resolver batches child queries by type
-- nested preset name must exist on each target model
+- parent table must contain `<relation>_id` and `<relation>_type`, or a custom `type_column`
+- resolver reads the discriminator value to choose the concrete target model
+- only `belongs_to` may be polymorphic
+- polymorphic relations cannot use `through`
 
 ## Known Limitations
 
