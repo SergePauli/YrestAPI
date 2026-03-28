@@ -38,7 +38,7 @@ watch:
 # make test — запуск тестов
 test:
 	@echo "▶️  Запуск тестов..."
-	go test -v ./...
+	go test -v -count=1 ./...
 
 # ================================================
 # make import — генерация YAML-моделей из SQL introspection

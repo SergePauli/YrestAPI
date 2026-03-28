@@ -12,6 +12,9 @@ Versioning: this project publicly follows [Semantic Versioning 2.0.0](VERSIONING
 
 - Offload heavy list endpoints from your main API (`PHP`, `Ruby`, `Node`, etc.).
 - Remove ORM and server-side business code from read-only API paths.
+- Most MVC-oriented ORMs assume one model super-class per entity and offer only limited eager/lazy loading strategies, which is usually not expressive enough for the full variety of client views.
+- YrestAPI solves that by introducing model presets: client-shaped data profiles that define SQL generation and result packing as precisely as a concrete view needs.
+- This reduces overfetching, saves network traffic, and lowers database load because each request can select only the fields and relations actually needed by the target UI.
 - Serve nested JSON with filters, sorts, pagination, and relation traversal.
 - Shape response fields after fetch with YAML formatters instead of hand-written view code.
 - Localize field values and enum-like codes through locale dictionaries, not controller logic.
@@ -60,6 +63,8 @@ Notes:
 
 Each model is a YAML file that maps a logical API model to a PostgreSQL table and declares relations, aliases, computable fields, and presets.
 
+This is the key difference from a conventional ORM model class. In a classic MVC stack, one entity model often has to serve many different screens, widgets, tables, cards, exports, and detail views, while eager/lazy loading toggles are too coarse to describe the exact shape of data needed by each one. YrestAPI moves that view-specific behavior into model presets, so the same logical model can expose multiple precisely tuned data profiles.
+
 Example:
 
 ```yaml
@@ -84,6 +89,13 @@ presets:
 ### Presets
 
 Presets define the exact JSON shape returned to the client. They are intentionally client-shaped, not table-shaped.
+
+In practice, a preset controls both:
+
+- how SQL is generated for a concrete request
+- how the result is packed back into JSON after fetching
+
+That means presets are not just presentation aliases. They are execution profiles for a model, optimized for the needs of a specific client view.
 
 Example:
 
@@ -156,6 +168,10 @@ Example filter keys:
 ## API
 
 All API requests are `POST` with JSON bodies.
+
+### Client SDKs
+
+- PHP SDK for YrestAPI with PSR-18 support: https://github.com/SergePauli/yrestapi-php
 
 ### `POST /api/index`
 
@@ -291,6 +307,13 @@ fields:
 - structured JSONL logs are written to `log/app.log`
 - request logging includes method, path, and status
 - startup failures are also emitted to stderr with a short reason
+- `GET /debug/logs` returns recent log entries from `log/app.log`
+- `/debug/logs` supports `level`, `limit`, `msg`, `key`, and `value` query filters
+- `msg` filters by partial match against the log `msg` field
+- `key` filters by exact JSON field name in the log entry
+- `value` filters by partial match against any value in the log entry
+- `/debug/logs` is protected by the `X-Debug-Token` header instead of JWT
+- configure `DEBUG_LOGS_TOKEN` with a shared secret and send it as `X-Debug-Token: <token>`
 
 ### Health Endpoints
 
@@ -330,6 +353,7 @@ Configuration is read from environment variables:
 | `AUTH_JWT_PUBLIC_KEY_PATH` | empty | PEM public key path |
 | `AUTH_JWT_CLOCK_SKEW_SEC` | `60` | Allowed clock skew |
 | `CORS_ALLOW_ORIGIN` | `*` | Allowed CORS origin(s) |
+| `DEBUG_LOGS_TOKEN` | empty | Shared token required by `/debug/logs` via `X-Debug-Token` |
 | `CORS_ALLOW_CREDENTIALS` | `false` | Send `Access-Control-Allow-Credentials: true` |
 | `ALIAS_CACHE_MAX_BYTES` | `0` | Alias cache limit, `0` = unlimited |
 
