@@ -27,6 +27,7 @@ jobs:
     env:
       GO_VERSION: "1.24"
       GOCACHE: ${{ github.workspace }}/.gocache
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       APP_ENV: test
       POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/app?sslmode=disable
       MODELS_DIR: ./test_db
@@ -56,4 +57,3 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
-
