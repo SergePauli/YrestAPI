@@ -15,6 +15,7 @@ jobs:
     env:
       GO_VERSION: "1.24"
       GOCACHE: ${{ github.workspace }}/.gocache
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
