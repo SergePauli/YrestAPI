@@ -107,11 +107,12 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: |
+          VERSION_NO_V="${VERSION#v}"
           awk '
             $0 ~ "^## \\[" version "\\]" { capture=1; next }
             capture && $0 ~ "^## \\[" { exit }
             capture { print }
-          ' version="$VERSION" CHANGELOG.md | sed '/./,$!d' > dist/release-notes.md
+          ' version="$VERSION_NO_V" CHANGELOG.md | sed '/./,$!d' > dist/release-notes.md
           if [ ! -s dist/release-notes.md ]; then
             echo "No CHANGELOG section found for $VERSION" >&2
             exit 1
