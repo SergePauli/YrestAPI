@@ -1,5 +1,11 @@
 # YrestAPI - declarative read-only REST over PostgreSQL (YAML -> JSON)
 
+[![CI](https://github.com/SergePauli/YrestAPI/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/SergePauli/YrestAPI/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SergePauli/YrestAPI)](https://github.com/SergePauli/YrestAPI/releases)
+[![License](https://img.shields.io/github/license/SergePauli/YrestAPI)](LICENSE.txt)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go)](https://go.dev/)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsergepauli%2Fyrestapi-2496ED?logo=docker)](https://github.com/SergePauli/YrestAPI/pkgs/container/yrestapi)
+
 > TL;DR: run a fast read-only JSON API for PostgreSQL in minutes.  
 > Endpoints: `/api/index` and `/api/count`. Contract defined in YAML.
 
