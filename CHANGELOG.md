@@ -5,6 +5,12 @@ This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-29
+
+### Fixed
+
+- Release workflow changelog lookup now strips the `v` prefix from Git tags before searching release notes sections in `CHANGELOG.md`.
+
 ## [1.1.0] - 2026-03-29
 
 ### Added
