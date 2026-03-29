@@ -5,6 +5,8 @@ This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-29
+
 ### Added
 
 - `sqlimport` CLI for generating YAML model files from a live PostgreSQL schema in `simple` and `full` modes.
@@ -12,13 +14,27 @@ This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 - GraphQL query import support in `sqlimport`, including preset generation from GraphQL operations.
 - Automatic locale defaults generation/merge for Prisma enum fields during Prisma-based imports.
 - Operational endpoints: `GET /healthz` for liveness and `GET /readyz` for readiness checks.
+- Operational endpoint: `GET /debug/logs` for reading recent structured application log entries over HTTP.
+- `DEBUG_LOGS_TOKEN` configuration for protecting `/debug/logs` via the `X-Debug-Token` header.
+- `/debug/logs` query filters: `level`, `limit`, `msg`, `key`, and `value`.
 - Zero-config Docker Compose smoke stack for quick local startup and validation.
 - Docker Compose-backed integration test run for the smoke suite.
+- CI and release workflows for automated validation, release builds, and container publishing.
 
 ### Changed
 
 - Importer-generated relations now include `has_many` presets and improved `has_many` naming.
 - Docker/runtime startup now tolerates an empty `db/` by falling back to `test_db` for smoke and quick-start scenarios.
+- Local Docker image builds now correctly overlay `cfg/` on top of `def_cfg/`, including locale files.
+- `DOCS.md` was substantially rewritten into a structured reference for:
+  - request DSL and runtime effects
+  - model YAML DSL and runtime effects
+  - resolver execution pipeline and relation materialization
+- `README.md` was substantially reworked to better explain:
+  - why presets exist beyond classic ORM eager/lazy loading
+  - core architectural concepts
+  - operational usage and client integration
+  - project metadata in the first screen, including status badges and PHP SDK reference
 
 ## [1.0.0] - 2026-02-24
 
