@@ -5,6 +5,10 @@ This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Negative substring filter operator `__not_cnt` for request filters, with case-sensitive variant `__not_cnt_cs`.
+
 ## [1.1.1] - 2026-03-29
 
 ### Fixed

@@ -159,6 +159,18 @@ func (m *Model) buildWhereClause(
 						cond = squirrel.Expr(fmt.Sprintf("%s ILIKE ?", comparisonField), "%"+s+"%")
 					}
 				}
+			case "not_cnt":
+				if s, ok := val.(string); ok {
+					comparisonField := sqlField
+					if needsTextCast(fieldType, "string") {
+						comparisonField = fmt.Sprintf("CAST(%s AS TEXT)", sqlField)
+					}
+					if caseSensitive {
+						cond = squirrel.Expr(fmt.Sprintf("%s NOT LIKE ?", comparisonField), "%"+s+"%")
+					} else {
+						cond = squirrel.Expr(fmt.Sprintf("%s NOT ILIKE ?", comparisonField), "%"+s+"%")
+					}
+				}
 			case "null":
 				if b, ok := val.(bool); ok {
 					if b {

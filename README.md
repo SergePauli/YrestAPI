@@ -166,6 +166,7 @@ Requests can:
 Example filter keys:
 
 - `name__cnt`
+- `name__not_cnt`
 - `org.name__eq`
 - `persons.last_name__eq`
 - `id__in`
@@ -217,7 +218,7 @@ Behavior notes:
 
 - relation traversal uses dotted paths such as `org.name`
 - aliases can shorten long paths
-- string filters are case-insensitive by default
+- string filters are case-insensitive by default, including `__not_cnt`
 - invalid payloads return `400`
 - SQL/build/runtime errors return `500`
 

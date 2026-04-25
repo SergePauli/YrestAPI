@@ -151,6 +151,7 @@ Runtime effect:
 - `__gt`: greater than
 - `__gte`: greater than or equal
 - `__cnt`: substring match
+- `__not_cnt`: negative substring match
 - `__start`: prefix match
 - `__end`: suffix match
 - `__null`: `IS NULL` / `IS NOT NULL` depending on boolean value
@@ -161,15 +162,16 @@ Runtime effect:
 
 Runtime effect:
 
-- `__eq`, `__cnt`, `__start`, `__end` are case-insensitive by default
+- `__eq`, `__cnt`, `__not_cnt`, `__start`, `__end` are case-insensitive by default
 - case-insensitive equality uses `LOWER(field) = LOWER(?)`
-- case-insensitive contains/prefix/suffix use `ILIKE`
+- case-insensitive contains/prefix/suffix use `ILIKE`; `__not_cnt` uses `NOT ILIKE`
 - case-sensitive variants are available via suffix `_cs`
 
 Examples:
 
 - `name__eq_cs`
 - `name__cnt_cs`
+- `name__not_cnt_cs`
 - `name__start_cs`
 - `name__end_cs`
 
