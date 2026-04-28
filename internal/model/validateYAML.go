@@ -8,12 +8,13 @@ import (
 
 // Разрешённые ключи для объектов
 var allowedModelKeys = map[string]bool{
-	"table":      true,
-	"relations":  true,
-	"presets":    true,
-	"include":    true,
-	"computable": true,
-	"aliases":    true,
+	"table":        true,
+	"relations":    true,
+	"presets":      true,
+	"include":      true,
+	"computable":   true,
+	"aggregatable": true,
+	"aliases":      true,
 }
 
 var allowedRelationKeys = map[string]bool{
@@ -55,6 +56,11 @@ var allowedComputableKeys = map[string]bool{
 	"where":  true,
 }
 
+var allowedAggregatableKeys = map[string]bool{
+	"functions": true,
+	"type":      true,
+}
+
 // Разрешённые значения для type в полях
 var allowedFieldTypeValues = map[string]bool{
 	"int":          true,
@@ -93,6 +99,8 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 			allowedKeys = allowedFieldKeys
 		case "computable-entry":
 			allowedKeys = allowedComputableKeys
+		case "aggregatable-entry":
+			allowedKeys = allowedAggregatableKeys
 		case "aliases-map":
 			allowedKeys = nil
 		default:
@@ -133,6 +141,10 @@ func validateYAMLNode(node *yaml.Node, context string) error {
 				nextContext = "computable-map"
 			} else if context == "computable-map" {
 				nextContext = "computable-entry"
+			} else if context == "model" && key == "aggregatable" {
+				nextContext = "aggregatable-map"
+			} else if context == "aggregatable-map" {
+				nextContext = "aggregatable-entry"
 			} else if context == "model" && key == "aliases" {
 				nextContext = "aliases-map"
 			} else {

@@ -1,5 +1,13 @@
 table: employees
 
+aggregatable:
+  id:
+    type: int
+    functions: [sum, avg, min, max]
+  hired_at:
+    type: date
+    functions: [min, max]
+
 relations:
   organization:
     type: belongs_to

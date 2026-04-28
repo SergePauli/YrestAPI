@@ -59,13 +59,32 @@ func TestStringCntDefaultCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestStringNotCntDefaultCaseInsensitive(t *testing.T) {
+	m, preset, aliasMap := stringFilterFixture()
+	filters := map[string]any{"name__not_cnt": "oh"}
+
+	sb, err := m.BuildIndexQuery(aliasMap, filters, nil, preset, 0, 0)
+	if err != nil {
+		t.Fatalf("BuildIndexQuery: %v", err)
+	}
+	sql, _, err := sb.ToSql()
+	if err != nil {
+		t.Fatalf("ToSql: %v", err)
+	}
+
+	if !strings.Contains(sql, "main.name NOT ILIKE ") {
+		t.Fatalf("expected NOT ILIKE for default negative substring filter, got SQL: %s", sql)
+	}
+}
+
 func TestStringOperatorsCaseSensitiveOverride(t *testing.T) {
 	m, preset, aliasMap := stringFilterFixture()
 	filters := map[string]any{
-		"name__eq_cs":    "John",
-		"name__cnt_cs":   "oh",
-		"name__start_cs": "Jo",
-		"name__end_cs":   "hn",
+		"name__eq_cs":      "John",
+		"name__cnt_cs":     "oh",
+		"name__not_cnt_cs": "zz",
+		"name__start_cs":   "Jo",
+		"name__end_cs":     "hn",
 	}
 
 	sb, err := m.BuildIndexQuery(aliasMap, filters, nil, preset, 0, 0)
@@ -88,6 +107,9 @@ func TestStringOperatorsCaseSensitiveOverride(t *testing.T) {
 	}
 	if strings.Count(sql, "main.name LIKE ") < 3 {
 		t.Fatalf("expected LIKE for case-sensitive string operators, got SQL: %s", sql)
+	}
+	if !strings.Contains(sql, "main.name NOT LIKE ") {
+		t.Fatalf("expected NOT LIKE for case-sensitive negative substring operator, got SQL: %s", sql)
 	}
 }
 
