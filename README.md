@@ -7,7 +7,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsergepauli%2Fyrestapi-2496ED?logo=docker)](https://github.com/SergePauli/YrestAPI/pkgs/container/yrestapi)
 
 > TL;DR: run a fast read-only JSON API for PostgreSQL in minutes.  
-> Endpoints: `/api/index` and `/api/count`. Contract defined in YAML.
+> Endpoints: `/api/index`, `/api/stats`, and deprecated `/api/count`. Contract defined in YAML.
 
 **YrestAPI** is a declarative REST engine in Go for read-heavy PostgreSQL APIs.  
 You describe models, relations, and response shapes in YAML, and YrestAPI serves JSON without ORM code or custom read handlers.
@@ -52,7 +52,7 @@ curl -sS http://localhost:8080/readyz
 curl -sS -X POST http://localhost:8080/api/index \
   -H 'Content-Type: application/json' \
   -d '{"model":"Contragent","preset":"item","sorts":["id ASC"],"limit":2}'
-curl -sS -X POST http://localhost:8080/api/count \
+curl -sS -X POST http://localhost:8080/api/stats \
   -H 'Content-Type: application/json' \
   -d '{"model":"Person"}'
 ```
@@ -222,9 +222,11 @@ Behavior notes:
 - invalid payloads return `400`
 - SQL/build/runtime errors return `500`
 
-### `POST /api/count`
+### `POST /api/stats`
 
 Returns a single integer count for the same filter semantics.
+If `aggregates` is omitted, the response stays `{"count": N}`.
+`POST /api/count` remains supported as a backward-compatible deprecated alias.
 
 Payload:
 
@@ -244,6 +246,43 @@ Response:
   "count": 123
 }
 ```
+
+Aggregate payload shape:
+
+```json
+{
+  "model": "Employee",
+  "filters": {
+    "organization_id__eq": 1
+  },
+  "aggregates": {
+    "sum_id": { "fn": "sum", "field": "id" },
+    "avg_id": { "fn": "avg", "field": "id" },
+    "min_hired_at": { "fn": "min", "field": "hired_at" },
+    "max_hired_at": { "fn": "max", "field": "hired_at" }
+  }
+}
+```
+
+Aggregate response:
+
+```json
+{
+  "count": 2,
+  "aggregates": {
+    "sum_id": 201,
+    "avg_id": 100.5,
+    "min_hired_at": "2022-02-02",
+    "max_hired_at": "2023-03-03"
+  }
+}
+```
+
+Aggregate restrictions:
+
+- only whitelisted model fields from `aggregatable` config are allowed
+- supported functions are `sum`, `avg`, `min`, `max`
+- arbitrary SQL expressions in request payloads are not accepted
 
 ## Security
 
@@ -378,7 +417,7 @@ In production you will typically:
 
 ### Upgrade Notes
 
-- the public API surface is intentionally small: `/api/index`, `/api/count`, `/healthz`, `/readyz`
+- the public API surface is intentionally small: `/api/index`, `/api/stats`, deprecated `/api/count`, `/healthz`, `/readyz`
 - release notes are generated from [CHANGELOG.md](CHANGELOG.md)
 - versioning follows [VERSIONING.md](VERSIONING.md)
 - detailed engine documentation lives in [DOCS.md](DOCS.md)

@@ -51,9 +51,9 @@ This project follows [Semantic Versioning 2.0.0](VERSIONING.md).
 ### Added
 
 - Initial stable release of YrestAPI: universal API for high-speed delivery of JSON object lists, defined by `.yml` model config files at the database query layer.
-- Read-only JSON API endpoints: `/api/index` and `/api/count`.
+- Read-only JSON API endpoints: `/api/index`, `/api/stats`, and deprecated `/api/count`.
 - `/api/index` supports filters, sorting, pagination, and nested relation paths.
-- `/api/count` supports the same filter semantics as `/api/index`.
+- `/api/stats` and `/api/count` support the same filter semantics as `/api/index`.
 - Declarative YAML model system with relations: `has_one`, `has_many`, `belongs_to`, polymorphic `belongs_to`, `through`.
 - Preset-driven JSON shaping, including nested presets.
 - Formatter and computable field support.

@@ -310,9 +310,11 @@ Example success response:
 ]
 ```
 
-### `/api/count`
+### `/api/stats`
 
 Returns a single integer (`{"count": N}`) for the same filter semantics.
+When `aggregates` is requested, returns both `count` and aggregate values in one response.
+`/api/count` is kept as a backward-compatible deprecated alias.
 
 Payload:
 
@@ -329,6 +331,10 @@ Notes:
 - still normalizes aliases and traverses dotted relation paths
 - generates a `COUNT` query instead of row selection
 - `sorts`, `offset`, and `limit` do not shape the returned payload, because the result is a single scalar count
+- when `aggregates` is omitted, response shape remains backward-compatible: `{"count": N}`
+- supported aggregate functions: `sum`, `avg`, `min`, `max`
+- aggregate fields must be explicitly whitelisted in model YAML under `aggregatable`
+- request payloads cannot pass raw SQL expressions; only configured field paths/computable fields are accepted
 
 ## Service Configuration
 
@@ -482,7 +488,7 @@ The service is organized as a staged execution pipeline.
 
 Runtime responsibility:
 
-- accepts HTTP requests on `/api/index` and `/api/count`
+- accepts HTTP requests on `/api/index`, `/api/stats`, and deprecated `/api/count`
 - applies CORS policy
 - applies JWT validation when `AUTH_ENABLED=true`
 - records request/response logs
@@ -500,7 +506,7 @@ Runtime responsibility:
 - reads and validates JSON request bodies
 - selects the requested model and preset names from the payload
 - for `/api/index`, creates an `IndexRequest` and hands it to `Resolver`
-- for `/api/count`, builds a count query directly from the same model registry and filter DSL
+- for `/api/stats` and deprecated `/api/count`, builds a count query directly from the same model registry and filter DSL
 
 Practical effect:
 
@@ -648,7 +654,7 @@ Practical effect:
 Finally:
 
 - `/api/index` returns the finalized array of JSON objects
-- `/api/count` returns a scalar count payload
+- `/api/stats` returns a scalar count payload by default and may include aggregates
 - router middleware logs the resulting HTTP status and returns the encoded response to the client
 
 ## Model DSL
@@ -1448,7 +1454,7 @@ Runtime effect:
 
 ## Known Limitations
 
-- the service is read-only by design: only `/api/index` and `/api/count` are provided
+- the service is read-only by design: `/api/index`, `/api/stats`, and deprecated `/api/count` are provided
 - PostgreSQL is the only supported database backend
 - model configuration is loaded and validated on startup; changing YAML files requires restart
 - polymorphic relation resolution is based on `<relation>_type` values present in data

@@ -4,14 +4,15 @@ import "strings"
 
 // Model описывает структуру модели в конфигурации
 type Model struct {
-	Name        string                    `yaml:"-"` // logical name of the model
-	Table       string                    `yaml:"table"`
-	Relations   map[string]*ModelRelation `yaml:"relations"`
-	Presets     map[string]*DataPreset    `yaml:"presets"`
-	Computable  map[string]*Computable    `yaml:"computable"`   // virtual fields available to all presets
-	Aliases     map[string]string         `yaml:"aliases"`      // short path aliases
-	PrimaryKeys []string                  `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
-	Includes    StringList                `yaml:"include"`
+	Name         string                    `yaml:"-"` // logical name of the model
+	Table        string                    `yaml:"table"`
+	Relations    map[string]*ModelRelation `yaml:"relations"`
+	Presets      map[string]*DataPreset    `yaml:"presets"`
+	Computable   map[string]*Computable    `yaml:"computable"`   // virtual fields available to all presets
+	Aggregatable map[string]*Aggregatable  `yaml:"aggregatable"` // whitelisted fields allowed in aggregate payloads
+	Aliases      map[string]string         `yaml:"aliases"`      // short path aliases
+	PrimaryKeys  []string                  `yaml:"primary_keys"` // optional, e.g. ["id"] or ["part1","part2"]
+	Includes     StringList                `yaml:"include"`
 }
 
 // StringList unmarshals either a single string or a list of strings.
@@ -96,6 +97,11 @@ type Computable struct {
 	Source string `yaml:"source"` // SQL-выражение или подзапрос; поддерживает {path} плейсхолдеры
 	Where  string `yaml:"where"`  // альтернативное выражение для WHERE/ORDER (если нужно отличать от select)
 	Type   string `yaml:"type"`   // тип результата (int/string/UUID/etc)
+}
+
+type Aggregatable struct {
+	Functions StringList `yaml:"functions"`
+	Type      string     `yaml:"type"`
 }
 
 // SelectColumn описывает одно выражение в SELECT и то, куда положить его результат.
