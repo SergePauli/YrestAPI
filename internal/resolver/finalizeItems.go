@@ -400,9 +400,7 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 					continue
 				}
 			}
-			mm := map[string]any{}
-			cur[seg] = mm
-			cur = mm
+			return nil
 		}
 		return cur
 	}
@@ -502,6 +500,9 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 					key := fieldKey(&f) // куда кладём ветку в JSON (alias > source)
 					for i := range items {
 						parent := getCtx(items[i], prefix)
+						if parent == nil {
+							continue
+						}
 						switch rel.Type {
 						case "has_one":
 							if sub, ok := parent[key].(map[string]any); ok {
@@ -571,6 +572,9 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			target := f.Alias
 			for i := range items {
 				ctx := getCtx(items[i], prefix) // строго своя ветка
+				if ctx == nil {
+					continue
+				}
 				ctx[target] = applyFormatter(tpl, ctx)
 			}
 
@@ -596,6 +600,9 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			for i := range items {
 				if val, ok := getValueAtPath(items[i], path); ok {
 					ctx := getCtx(items[i], prefix)
+					if ctx == nil {
+						continue
+					}
 					ctx[targetKey] = val
 				}
 			}
@@ -610,6 +617,9 @@ func applyAllFormatters(m *model.Model, p *model.DataPreset, items []map[string]
 			childPrefixAli := prefixFor(prefix, fieldKey(f))
 			for i := range items {
 				parent := getCtx(items[i], prefix)
+				if parent == nil {
+					continue
+				}
 
 				var child map[string]any
 				if m, ok := getMapAt(items[i], childPrefixSrc); ok {

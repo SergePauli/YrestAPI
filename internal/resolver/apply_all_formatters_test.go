@@ -314,3 +314,76 @@ func TestApplyAllFormatters_NestedPreset_LocalFormatter(t *testing.T) {
 		t.Fatalf("nested formatter failed: got %#v", items[0])
 	}
 }
+
+func TestApplyAllFormatters_DoesNotCreateNilBelongsToContext(t *testing.T) {
+	organizationItem := &model.DataPreset{
+		Name: "item",
+		Fields: []model.Field{
+			{Type: "string", Source: "name"},
+		},
+	}
+	organization := &model.Model{
+		Table:     "organizations",
+		Relations: map[string]*model.ModelRelation{},
+		Presets:   map[string]*model.DataPreset{"item": organizationItem},
+	}
+
+	supplierItem := &model.DataPreset{
+		Name: "item",
+		Fields: []model.Field{
+			{
+				Type:         "preset",
+				Source:       "organization",
+				Alias:        "name",
+				Formatter:    "{name}",
+				NestedPreset: "item",
+			},
+		},
+	}
+	supplier := &model.Model{
+		Table:   "suppliers",
+		Presets: map[string]*model.DataPreset{"item": supplierItem},
+		Relations: map[string]*model.ModelRelation{
+			"organization": {Type: "has_one"},
+		},
+	}
+	supplier.Relations["organization"].SetModelRef(organization)
+
+	orderStage := &model.DataPreset{
+		Name: "stage",
+		Fields: []model.Field{
+			{Type: "preset", Source: "supplier", NestedPreset: "item"},
+		},
+	}
+	order := &model.Model{
+		Table:   "orders",
+		Presets: map[string]*model.DataPreset{"stage": orderStage},
+		Relations: map[string]*model.ModelRelation{
+			"supplier": {Type: "belongs_to"},
+		},
+	}
+	order.Relations["supplier"].SetModelRef(supplier)
+
+	stageOrderCard := &model.DataPreset{
+		Name: "card",
+		Fields: []model.Field{
+			{Type: "preset", Source: "order", NestedPreset: "stage"},
+		},
+	}
+	stageOrder := &model.Model{
+		Table: "stage_orders",
+		Relations: map[string]*model.ModelRelation{
+			"order": {Type: "belongs_to"},
+		},
+	}
+	stageOrder.Relations["order"].SetModelRef(order)
+
+	items := []map[string]any{{"id": 1, "order": nil}}
+
+	if err := applyAllFormatters(stageOrder, stageOrderCard, items, ""); err != nil {
+		t.Fatalf("applyAllFormatters error: %v", err)
+	}
+	if got := items[0]["order"]; got != nil {
+		t.Fatalf("nil belongs_to context was materialized: %#v", got)
+	}
+}
