@@ -9,7 +9,60 @@ import (
 	"YrestAPI/internal/db"
 	"YrestAPI/internal/logger"
 	"YrestAPI/internal/model"
+	"github.com/google/uuid"
 )
+
+// ResolveDistinctValues returns a scalar unique-value list and deliberately
+// bypasses presets and relation-tail hydration.
+func ResolveDistinctValues(ctx context.Context, req IndexRequest) ([]any, error) {
+	m, ok := model.Registry[req.Model]
+	if !ok {
+		return nil, fmt.Errorf("resolver: model not found: %s", req.Model)
+	}
+	filters := model.NormalizeFiltersWithAliases(m, req.Filters)
+	field := strings.TrimSpace(model.ExpandAliasPath(m, req.UniqueBy))
+	aliasMap, err := m.CreateAliasMap(m, nil, filters, []string{field + " ASC"})
+	if err != nil {
+		return nil, &model.DistinctValidationError{Message: err.Error()}
+	}
+	query, err := m.BuildDistinctValuesQuery(aliasMap, filters, field, req.Offset, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	sqlStr, args, err := query.ToSql()
+	if err != nil {
+		return nil, err
+	}
+	logger.Debug("sql", map[string]any{"endpoint": "/api/index", "sql": sqlStr, "args": args})
+	rows, err := db.Pool.Query(ctx, sqlStr, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	values := make([]any, 0)
+	for rows.Next() {
+		var value any
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		switch v := value.(type) {
+		case uuid.UUID:
+			value = v.String()
+		case [16]byte:
+			if id, err := uuid.FromBytes(v[:]); err == nil {
+				value = id.String()
+			}
+		case []byte:
+			value = string(v)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
 
 // Главный резолвер
 func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
@@ -92,7 +145,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	// 3) Собираем parentIDs отдельно для КАЖДОГО хвоста, используя rel.PK
 	type idSet map[any]struct{}
-	parentIDsByTail := make(map[string][]any) // FieldAlias -> []id
+	parentIDsByTail := make(map[string][]any) // full tail path -> []id
 
 	for _, t := range tails {
 		// ключ родителя, который участвует в связи
@@ -111,11 +164,11 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 				}
 			}
 		}
-		parentIDsByTail[t.FieldAlias] = ids
+		parentIDsByTail[tailKey(t)] = ids
 	}
 
 	type grouped = map[any][]map[string]any
-	groupedByAlias := make(map[string]grouped)
+	groupedByTail := make(map[string]grouped)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -123,12 +176,13 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 	for _, t := range tails {
 		t := t // avoid capturing loop variable in goroutine
-		ids := parentIDsByTail[t.FieldAlias]
+		key := tailKey(t)
+		ids := parentIDsByTail[key]
 		if len(ids) == 0 {
 			continue
 		}
 		wg.Add(1)
-		go func(ids []any) {
+		go func(key string, ids []any) {
 			defer wg.Done()
 
 			childModel := t.Rel.GetModelRef()
@@ -203,9 +257,9 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 			}
 
 			mu.Lock()
-			groupedByAlias[t.FieldAlias] = g
+			groupedByTail[key] = g
 			mu.Unlock()
-		}(ids)
+		}(key, ids)
 	}
 
 	wg.Wait()
@@ -233,7 +287,7 @@ func Resolver(ctx context.Context, req IndexRequest) ([]map[string]any, error) {
 
 			// Получаем группы дочерних записей
 			var groups []map[string]any
-			if m, ok := groupedByAlias[t.FieldAlias]; ok {
+			if m, ok := groupedByTail[tailKey(t)]; ok {
 				if g, ok := m[pid]; ok {
 					groups = g
 				}
@@ -399,6 +453,13 @@ type TailSpec struct {
 	TargetPath   string // если задано, кладём результат в TargetPathCtx[FieldAlias]
 	Formatter    string // возможно мусорное поле,
 	// так как форматтеры на has_one/has_many считаются в дочерних вызовах резолвера
+}
+
+// tailKey identifies a hydrated has_one/has_many field within the complete
+// preset tree. FieldAlias alone is not unique: different nested branches may
+// legitimately expose fields with the same JSON name.
+func tailKey(t TailSpec) string {
+	return prefixFor(strings.TrimSpace(t.TargetPath), t.FieldAlias)
 }
 
 type PolyTailSpec struct {

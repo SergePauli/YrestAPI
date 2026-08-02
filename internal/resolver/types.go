@@ -10,6 +10,7 @@ type IndexRequest struct {
 	Sorts         []string               `json:"sorts"`
 	Offset        uint64                 `json:"offset"`
 	Limit         uint64                 `json:"limit"`
+	UniqueBy      string                 `json:"unique_by"`
 	ThroughFor    string                 `json:"-"` // имя связи в промежуточной модели, которую нужно вернуть (напр. "contact")
 	ThroughPreset string                 `json:"-"` // пресет конечной модели для этой связи (напр. "item")
 	// служебные (только для внутренних вызовов)

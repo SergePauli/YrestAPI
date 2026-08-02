@@ -2,9 +2,11 @@ package handler
 
 import (
 	"YrestAPI/internal/logger"
+	"YrestAPI/internal/model"
 	"YrestAPI/internal/resolver"
 
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 )
@@ -45,6 +47,25 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 		"endpoint": "/api/index",
 		"payload":  json.RawMessage(body),
 	})
+
+	if req.UniqueBy != "" {
+		result, err := resolver.ResolveDistinctValues(r.Context(), req)
+		if err != nil {
+			status := http.StatusInternalServerError
+			var validationErr *model.DistinctValidationError
+			if errors.As(err, &validationErr) {
+				status = http.StatusBadRequest
+			}
+			logger.Error("distinct_resolver_error", map[string]any{"endpoint": "/api/index", "error": err.Error()})
+			http.Error(w, "Failed to resolve distinct values: "+err.Error(), status)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			logger.Error("write_response_failed", map[string]any{"endpoint": "/api/index", "error": err.Error()})
+		}
+		return
+	}
 
 	// Вызываем Resolver
 	result, err := resolver.Resolver(r.Context(), req)

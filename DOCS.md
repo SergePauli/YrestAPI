@@ -316,6 +316,14 @@ Returns a single integer (`{"count": N}`) for the same filter semantics.
 When `aggregates` is requested, returns both `count` and aggregate values in one response.
 `/api/count` is kept as a backward-compatible deprecated alias.
 
+Both `/api/index` and `/api/stats` accept an optional `unique_by` field for
+scalar unique-value mode. `/api/index` returns a flat, ascending array of unique
+values and ignores the preset; `/api/stats` returns their count as
+`{"count": N}`. Filters retain their normal join semantics, including filters
+through `has_many`, while `unique_by` itself may not traverse `has_many`.
+`null` is treated as one distinct value. Pagination on `/api/index` is applied
+after deduplication. Aggregate requests cannot be combined with `unique_by`.
+
 Payload:
 
 ```json

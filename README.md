@@ -222,6 +222,31 @@ Behavior notes:
 - invalid payloads return `400`
 - SQL/build/runtime errors return `500`
 
+#### Unique scalar values
+
+Set `unique_by` to return only the unique values of one field. In this mode
+the preset is ignored, relation tails are not loaded, and the response is a
+flat JSON array:
+
+```json
+{
+  "model": "Employee",
+  "preset": "ignored_in_this_mode",
+  "filters": {"organization_id__gte": 1},
+  "unique_by": "position",
+  "offset": 0,
+  "limit": 20
+}
+```
+
+```json
+["Developer", "Manager"]
+```
+
+Values are ordered ascending. `limit` and `offset` apply after deduplication,
+and `null` is included as one unique value. Dotted `belongs_to` and `has_one`
+paths are supported; paths traversing `has_many` are rejected as ambiguous.
+
 ### `POST /api/stats`
 
 Returns a single integer count for the same filter semantics.
@@ -238,6 +263,19 @@ Payload:
   }
 }
 ```
+
+To count unique scalar values instead of root records, pass `unique_by`:
+
+```json
+{
+  "model": "Employee",
+  "filters": {},
+  "unique_by": "position"
+}
+```
+
+The response remains `{"count": N}` and includes `null` as one unique value.
+`aggregates` cannot be combined with `unique_by`.
 
 Response:
 
