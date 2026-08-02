@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ type StatsRequest struct {
 	Model      string                        `json:"model"`
 	Preset     string                        `json:"preset"`
 	Filters    map[string]interface{}        `json:"filters"`
+	UniqueBy   string                        `json:"unique_by"`
 	Aggregates map[string]StatsAggregateSpec `json:"aggregates"`
 }
 
@@ -62,6 +64,43 @@ func StatsHandler(w http.ResponseWriter, r *http.Request) {
 			"model":    req.Model,
 		})
 		http.Error(w, fmt.Sprintf("Model %s not found", req.Model), http.StatusNotFound)
+		return
+	}
+	if strings.TrimSpace(req.UniqueBy) != "" {
+		if len(req.Aggregates) > 0 {
+			http.Error(w, "aggregates cannot be combined with unique_by", http.StatusBadRequest)
+			return
+		}
+		filters := model.NormalizeFiltersWithAliases(m, req.Filters)
+		field := strings.TrimSpace(model.ExpandAliasPath(m, req.UniqueBy))
+		aliasMap, err := m.CreateAliasMap(m, nil, filters, []string{field + " ASC"})
+		if err != nil {
+			http.Error(w, "alias map error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		query, err := m.BuildDistinctCountQuery(aliasMap, filters, field)
+		if err != nil {
+			status := http.StatusInternalServerError
+			var validationErr *model.DistinctValidationError
+			if errors.As(err, &validationErr) {
+				status = http.StatusBadRequest
+			}
+			http.Error(w, "Query error: "+err.Error(), status)
+			return
+		}
+		sqlStr, args, err := query.ToSql()
+		if err != nil {
+			http.Error(w, "SQL error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		logger.Debug("sql", map[string]any{"endpoint": endpoint, "sql": sqlStr, "args": args})
+		var count int
+		if err := db.Pool.QueryRow(r.Context(), sqlStr, args...).Scan(&count); err != nil {
+			http.Error(w, "DB error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]int{"count": count})
 		return
 	}
 

@@ -16,6 +16,49 @@ import (
 	"YrestAPI/internal/db"
 )
 
+func Test_Index_DistinctValues_IgnoresPreset(t *testing.T) {
+	if testBaseURL == "" || httpSrv == nil {
+		t.Fatal("bootstrap not ready: HTTP server/baseURL missing")
+	}
+
+	rows, err := db.Pool.Query(context.Background(), `SELECT DISTINCT position FROM employees ORDER BY position ASC`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	want := make([]any, 0)
+	for rows.Next() {
+		var value any
+		if err := rows.Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, value)
+	}
+
+	payload := map[string]any{
+		"model":     "Employee",
+		"preset":    "this_preset_does_not_exist",
+		"unique_by": "position",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Post(testBaseURL+"/api/index", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	responseBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, responseBody)
+	}
+	var got []any
+	if err := json.Unmarshal(responseBody, &got); err != nil {
+		t.Fatalf("expected scalar JSON array: %v; body=%s", err, responseBody)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("distinct values mismatch: got %#v, want %#v", got, want)
+	}
+}
+
 // /api/index: Employee, preset=item, order by id ASC, offset=1, limit=2
 func Test_Index_Employee_Item_Pagination(t *testing.T) {
 	if testBaseURL == "" || httpSrv == nil {

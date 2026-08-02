@@ -137,3 +137,24 @@ func TestMergeTailsUsesTargetPathContext(t *testing.T) {
 		}
 	}
 }
+
+func TestTailKeyIncludesTargetPath(t *testing.T) {
+	supplierName := TailSpec{
+		FieldAlias: "name",
+		TargetPath: "order.supplier",
+	}
+	contractorName := TailSpec{
+		FieldAlias: "name",
+		TargetPath: "stage.contract.contragent",
+	}
+
+	if got, want := tailKey(supplierName), "order.supplier.name"; got != want {
+		t.Fatalf("supplier tail key: got %q, want %q", got, want)
+	}
+	if got, want := tailKey(contractorName), "stage.contract.contragent.name"; got != want {
+		t.Fatalf("contractor tail key: got %q, want %q", got, want)
+	}
+	if tailKey(supplierName) == tailKey(contractorName) {
+		t.Fatal("tails from different target paths must not share an identity")
+	}
+}
