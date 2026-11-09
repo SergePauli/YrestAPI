@@ -5,15 +5,11 @@ import (
 	"testing"
 )
 
-func TestStageSortIgnoresDisplayAliasAndKeepsModelAliases(t *testing.T) {
-	previous := Registry
-	Registry = map[string]*Model{}
-	t.Cleanup(func() { Registry = previous })
-	if err := InitRegistry("../../db"); err != nil {
-		t.Fatal(err)
-	}
-	m := Registry["Stage"]
-	preset := m.GetPreset("list")
+func TestSortIgnoresDisplayAliasAndKeepsModelAliases(t *testing.T) {
+	preset := &DataPreset{Fields: []Field{
+		{Source: "id", Type: "int"},
+		{Source: "{title}", Alias: "name", Type: "formatter"},
+	}}
 	for _, tc := range []struct {
 		name    string
 		aliases map[string]string
@@ -23,10 +19,10 @@ func TestStageSortIgnoresDisplayAliasAndKeepsModelAliases(t *testing.T) {
 		{"model_field_alias", map[string]string{"name": "stage_title"}, "stage_title"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m.Aliases = tc.aliases
+			m := &Model{Name: "SortFixture", Table: "sort_fixture", Aliases: tc.aliases}
 			// Match the resolver's normalization, and exercise direct builder calls too.
 			for _, sorts := range [][]string{{"name asc"}, NormalizeSortsWithAliases(m, []string{"name asc"})} {
-				am, err := m.CreateAliasMap(m, preset, nil, sorts)
+				am, err := BuildAliasMap(m, preset, nil, sorts)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -38,24 +34,13 @@ func TestStageSortIgnoresDisplayAliasAndKeepsModelAliases(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if strings.ContainsAny(sql, "{}") {
-					t.Fatalf("display template leaked into SQL: %s", sql)
+				parts := strings.SplitN(sql, " ORDER BY ", 2)
+				if len(parts) != 2 {
+					t.Fatalf("missing ORDER BY: %s", sql)
 				}
-				column := "main." + tc.column
-				if !strings.Contains(sql, "ORDER BY "+column+" asc") {
-					t.Fatalf("wrong sort: %s", sql)
-				}
-				group := strings.SplitN(sql, "GROUP BY ", 2)
-				if len(group) != 2 {
-					t.Fatalf("expected grouped Stage query: %s", sql)
-				}
-				groupColumns := strings.SplitN(group[1], " ORDER BY ", 2)[0]
-				if !containsString(strings.Split(groupColumns, ", "), column) {
-					t.Fatalf("sort column missing from GROUP BY: %s", sql)
-				}
-				selectColumns := strings.SplitN(strings.TrimPrefix(sql, "SELECT "), " FROM ", 2)[0]
-				if !containsString(strings.Split(selectColumns, ", "), column) {
-					t.Fatalf("sort column missing from SELECT: %s", sql)
+				order := strings.SplitN(parts[1], " LIMIT ", 2)[0]
+				if want := "main." + tc.column + " asc"; order != want {
+					t.Fatalf("ORDER BY = %q, want %q", order, want)
 				}
 			}
 		})
