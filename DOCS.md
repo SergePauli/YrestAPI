@@ -354,6 +354,7 @@ Configuration is read from environment variables.
 | `POSTGRES_DSN` | `postgres://postgres:postgres@localhost:5432/app?sslmode=disable` | PostgreSQL connection string |
 | `MODELS_DIR` | `./db` | Path to directory with YAML model files |
 | `LOCALE` | `en` | Default locale for localization |
+| `LOCAL_DATETIME` | `false` | Convert `datetime` values (including UTC-stored `timestamp without time zone`) to the environment's local timezone, resolved once at startup, before localization and formatters; `date` and `time` are unchanged |
 | `AUTH_ENABLED` | `false` | Enable JWT auth middleware |
 | `AUTH_JWT_VALIDATION_TYPE` | `HS256` | JWT signature algorithm: `HS256` / `RS256` / `ES256` |
 | `AUTH_JWT_ISSUER` | empty | Required `iss` claim value |

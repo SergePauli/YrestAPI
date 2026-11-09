@@ -36,6 +36,7 @@ func main() {
 		startupFatal("log_init_failed", err)
 	}
 	logger.SetDebug(*debugFlag)
+	model.SetDatetimeLocation(cfg.DatetimeLocation)
 	cfg.ModelsDir = resolveModelsDir(cfg.ModelsDir)
 
 	// PostgreSQL

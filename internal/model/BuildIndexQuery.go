@@ -208,38 +208,9 @@ func (m *Model) BuildIndexQuery(
 			continue
 		}
 
-		handled := false
-
-		// если сортировка совпадает с alias поля пресета — сортируем по нему
-		if preset != nil {
-			for _, f := range preset.Fields {
-				aliasName := strings.TrimSpace(f.Alias)
-				if aliasName == "" {
-					aliasName = f.Source
-				}
-				if aliasName == fieldPath {
-					if expr, ok := m.resolveFieldExpression(preset, aliasMap, f.Source); ok {
-						baseExpr := strings.TrimSpace(expr)
-						if baseExpr == "" {
-							continue
-						}
-						orderExpr := baseExpr
-						if dir != "" {
-							orderExpr += " " + dir
-						}
-						orderExprs = append(orderExprs, orderExpr)
-						addSelectExpr(baseExpr)
-						handled = true
-						break
-					}
-				}
-			}
-		}
-		if handled {
-			continue
-		}
-
-		if expr, ok := m.resolveFieldExpression(preset, aliasMap, fieldPath); ok {
+		// Sorting uses model aliases and SQL fields, independently of display
+		// aliases in preset.Fields. The same expression feeds SELECT/GROUP BY.
+		if expr, ok := m.resolveFieldExpression(nil, aliasMap, fieldPath); ok {
 			baseExpr := strings.TrimSpace(expr)
 			orderExpr := baseExpr
 			if dir != "" {
