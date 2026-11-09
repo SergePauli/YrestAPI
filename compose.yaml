@@ -28,6 +28,7 @@ services:
       POSTGRES_DSN: ${POSTGRES_DSN:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-app}?sslmode=disable}
       MODELS_DIR: ${MODELS_DIR:-/app/test_db}
       LOCALE: ${LOCALE:-en}
+      LOCAL_DATETIME: ${LOCAL_DATETIME:-false}
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"

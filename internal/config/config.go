@@ -8,19 +8,23 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+	_ "time/tzdata" // Make named zones available in minimal container images.
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port        string
-	PostgresDSN string
-	ModelsDir   string
-	Locale      string
-	AliasCache  AliasCacheConfig
-	CORS        CORSConfig
-	Auth        AuthConfig
-	Debug       DebugConfig
+	Port             string
+	PostgresDSN      string
+	ModelsDir        string
+	Locale           string
+	LocalDatetime    bool
+	DatetimeLocation *time.Location
+	AliasCache       AliasCacheConfig
+	CORS             CORSConfig
+	Auth             AuthConfig
+	Debug            DebugConfig
 }
 
 type AliasCacheConfig struct {
@@ -59,10 +63,11 @@ func LoadConfig() *Config {
 	_ = godotenv.Load(filepath.Join(root, ".env"))
 
 	cfg := &Config{
-		Port:        getEnv("PORT", "8080"),
-		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/app?sslmode=disable"),
-		ModelsDir:   getEnv("MODELS_DIR", "./db"),
-		Locale:      getEnv("LOCALE", "en"),
+		Port:          getEnv("PORT", "8080"),
+		PostgresDSN:   getEnv("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/app?sslmode=disable"),
+		ModelsDir:     getEnv("MODELS_DIR", "./db"),
+		Locale:        getEnv("LOCALE", "en"),
+		LocalDatetime: getEnvBool("LOCAL_DATETIME", false),
 		AliasCache: AliasCacheConfig{
 			MaxBytes: getEnvInt64("ALIAS_CACHE_MAX_BYTES", 0),
 		},
@@ -87,6 +92,11 @@ func LoadConfig() *Config {
 		},
 	}
 
+	if cfg.LocalDatetime {
+		cfg.DatetimeLocation = time.Local
+		// Resolve the environment's local zone now, before serving requests.
+		_ = cfg.DatetimeLocation.String()
+	}
 	return cfg
 }
 

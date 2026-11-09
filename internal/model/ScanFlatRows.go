@@ -41,6 +41,8 @@ func (m *Model) ScanFlatRows(rows pgx.Rows, preset *DataPreset, aliasMap *AliasM
 		for i, col := range cols {
 			v := vals[i]
 			switch col.Type {
+			case "datetime":
+				v = localDatetime(v)
 			case "UUID":
 				switch val := v.(type) {
 				case []byte:
